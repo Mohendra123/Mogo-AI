@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Podcast Maker - MOGO FM</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --primary: #f43f5e;
+            --primary-soft: #fb7185;
+            --bg: #000000;
+            --text-main: #f8fafc;
+            --text-muted: #8e8e93;
+            --input-bg: #2c2c2e;
+            --success: #34c759;
+            --danger: #ff453a;
+            --glass-bg: rgba(28, 28, 30, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --glass-blur: blur(20px);
+        }
+        html { -webkit-tap-highlight-color: transparent; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            background-image: radial-gradient(circle at 50% 0%, rgba(244, 63, 94, 0.05) 0%, transparent 55%);
+            -webkit-font-smoothing: antialiased;
+        }
+        .container {
+            width: 100%;
+            max-width: 640px;
+            position: relative;
+            text-align: center;
+            padding: 40px 36px;
+            border-radius: 28px;
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.04);
+        }
+        .menu-container { position: absolute; top: 24px; right: 24px; z-index: 200; }
+        .hamburger {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            cursor: pointer;
+            padding: 12px;
+            min-width: 44px;
+            min-height: 44px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.14);
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            backdrop-filter: blur(40px);
+            -webkit-backdrop-filter: blur(40px);
+            transition: background 0.2s ease, transform 0.15s ease;
+        }
+        .hamburger:hover { background: rgba(255, 255, 255, 0.22); }
+        .hamburger:active { transform: scale(0.97); }
+        .hamburger div { width: 20px; height: 2px; background: rgba(255, 255, 255, 0.92); border-radius: 2px; }
+        .dropdown-menu {
+            display: none;
+            position: absolute;
+            top: 52px;
+            right: 0;
+            min-width: 220px;
+            flex-direction: column;
+            overflow: hidden;
+            text-align: left;
+            border-radius: 18px;
+            background: rgba(36, 36, 40, 0.82);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            backdrop-filter: blur(48px);
+            -webkit-backdrop-filter: blur(48px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+        }
+        .dropdown-menu.show { display: flex; animation: menuReveal 0.28s cubic-bezier(0.32, 0.72, 0, 1); }
+        @keyframes menuReveal { from { opacity: 0; transform: translateY(-8px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        .dropdown-menu a {
+            padding: 0 18px;
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+            color: rgba(255, 255, 255, 0.95);
+            text-decoration: none;
+            font-size: 15px;
+            font-weight: 500;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            transition: background 0.15s ease;
+        }
+        .dropdown-menu a:last-child { border-bottom: none; }
+        .dropdown-menu a:hover { background: rgba(255, 255, 255, 0.08); }
+        .dropdown-menu a:active { background: rgba(255, 255, 255, 0.12); }
+        .dropdown-link { gap: 12px; text-align: left; }
+        .dropdown-link .nav-ico { width: 22px; height: 22px; flex-shrink: 0; color: rgba(255, 255, 255, 0.95); }
+        body[data-page="home"] .dropdown-menu a[data-nav="home"],
+        body[data-page="podcast"] .dropdown-menu a[data-nav="podcast"],
+        body[data-page="dubbing"] .dropdown-menu a[data-nav="dubbing"],
+        body[data-page="thumbnail"] .dropdown-menu a[data-nav="thumbnail"] { display: none !important; }
+        .file-picker-list { list-style: none; margin: 0 0 16px 0; padding: 0; border-radius: 14px; overflow: hidden; border: 1px solid var(--glass-border); background: rgba(28, 28, 30, 0.45); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+        .file-picker-row {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            min-height: 44px;
+            padding: 12px 16px;
+            cursor: pointer;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            text-align: left;
+            position: relative;
+            transition: background 0.15s ease;
+        }
+        .file-picker-row:last-child { border-bottom: none; }
+        .file-picker-row:active { background: rgba(255, 255, 255, 0.06); }
+        .file-picker-icon { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; color: rgba(255, 255, 255, 0.95); flex-shrink: 0; }
+        .file-picker-icon svg { width: 24px; height: 24px; display: block; }
+        .file-picker-text { flex: 1; min-width: 0; }
+        .file-picker-title { display: block; font-size: 15px; font-weight: 600; color: var(--text-main); letter-spacing: -0.02em; }
+        .file-picker-meta { display: block; font-size: 13px; color: var(--text-muted); margin-top: 2px; }
+        .file-picker-meta .file-name-ellip { display: inline; word-break: break-all; }
+        .file-picker-done { display: block; font-size: 12px; font-weight: 600; color: var(--success); margin-top: 4px; }
+        .file-picker-chevron { color: rgba(255, 255, 255, 0.28); font-size: 22px; font-weight: 300; line-height: 1; flex-shrink: 0; }
+        .app-logo { width: 90px; height: 90px; border-radius: 22px; margin-bottom: 16px; object-fit: cover; border: 1px solid var(--glass-border); cursor: pointer; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
+        h1 { color: var(--text-main); margin-bottom: 8px; font-weight: 700; font-size: 26px; letter-spacing: -0.02em; }
+        .subtitle { color: var(--text-muted); font-size: 15px; margin-bottom: 24px; letter-spacing: -0.01em; }
+        #uploadLimitWarning {
+            display: none;
+            color: var(--text-muted);
+            font-size: 13px;
+            font-weight: 500;
+            margin: 0 auto 20px auto;
+            padding: 10px 16px;
+            border-radius: 12px;
+            width: fit-content;
+            background: rgba(28, 28, 30, 0.55);
+            border: 1px solid var(--glass-border);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+        }
+        .input-group { display: flex; gap: 12px; margin-bottom: 14px; width: 100%; }
+        input[type="text"], input[type="number"], select {
+            flex: 1;
+            width: 100%;
+            padding: 14px 16px;
+            min-height: 44px;
+            border-radius: 12px;
+            border: 1px solid transparent;
+            background: var(--input-bg);
+            color: var(--text-main);
+            outline: none;
+            font-family: inherit;
+            font-size: 15px;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        input::placeholder { color: rgba(142, 142, 147, 0.85); }
+        input:focus, select:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(244, 63, 94, 0.25), 0 0 20px rgba(244, 63, 94, 0.12);
+        }
+        .instant-preview-box {
+            width: 100%;
+            aspect-ratio: 16/9;
+            background: #000;
+            border-radius: 12px;
+            position: relative;
+            overflow: hidden;
+            margin-bottom: 18px;
+            border: 1px solid var(--glass-border);
+        }
+        .instant-preview-box img { width: 100%; height: 100%; object-fit: contain; }
+        .instant-preview-box audio { position: absolute; bottom: 10px; left: 5%; width: 90%; opacity: 0.95; }
+        .ios-toggle-field {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            min-height: 44px;
+            padding: 0 16px;
+            background: rgba(28, 28, 30, 0.55);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+        }
+        .ios-toggle-label { font-size: 15px; font-weight: 500; color: var(--text-main); letter-spacing: -0.02em; }
+        .ios-switch { position: relative; width: 51px; height: 31px; flex-shrink: 0; cursor: pointer; }
+        .ios-switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; z-index: 1; }
+        .ios-switch-visual {
+            display: block;
+            width: 51px;
+            height: 31px;
+            border-radius: 16px;
+            background: rgba(120, 120, 128, 0.36);
+            transition: background 0.2s ease;
+            position: relative;
+        }
+        .ios-switch input:checked + .ios-switch-visual { background: var(--primary); }
+        .ios-switch-thumb {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 27px;
+            height: 27px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15), 0 1px 1px rgba(0, 0, 0, 0.16);
+            transition: transform 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+        }
+        .ios-switch input:checked + .ios-switch-visual .ios-switch-thumb { transform: translateX(20px); }
+        .btn, .btn-green, .btn-red {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            min-height: 44px;
+            padding: 14px 18px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+            margin-bottom: 12px;
+            transition: transform 0.12s ease, box-shadow 0.2s ease, filter 0.2s ease;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        .btn { color: #fff; background: linear-gradient(180deg, #f43f5e 0%, #fb7185 100%); box-shadow: 0 4px 16px rgba(244, 63, 94, 0.35); }
+        .btn:hover { filter: brightness(1.06); box-shadow: 0 6px 22px rgba(244, 63, 94, 0.45); }
+        .btn:active { transform: scale(0.97); }
+        .btn-green { color: #fff; background: linear-gradient(180deg, #f43f5e 0%, #fb7185 100%); box-shadow: 0 4px 16px rgba(244, 63, 94, 0.35); }
+        .btn-green:hover { filter: brightness(1.06); box-shadow: 0 6px 22px rgba(244, 63, 94, 0.45); }
+        .btn-green:active { transform: scale(0.97); }
+        .btn-red { background: rgba(28, 28, 30, 0.6); color: var(--text-muted); border: 1px solid rgba(255, 255, 255, 0.12); }
+        .btn-red:hover { color: var(--danger); border-color: rgba(255, 69, 58, 0.4); background: rgba(255, 69, 58, 0.08); }
+        .btn-red:active { transform: scale(0.97); }
+        video { width: 100%; border-radius: 12px; background: #000; margin-bottom: 16px; border: 1px solid var(--glass-border); }
+        ::cue { background-color: rgba(0, 0, 0, 0.82) !important; color: #fff !important; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', sans-serif !important; font-size: 16px !important; font-weight: 600 !important; }
+        .progress-container { width: 100%; height: 4px; border-radius: 4px; margin-top: 14px; overflow: hidden; background: rgba(255, 255, 255, 0.08); }
+        .progress-bar {
+            height: 4px;
+            border-radius: 4px;
+            width: 0%;
+            background: linear-gradient(90deg, #f43f5e, #fb7185);
+            transition: width 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+            box-shadow: 0 0 10px 2px rgba(244, 63, 94, 0.85), 4px 0 14px rgba(251, 113, 133, 0.45);
+        }
+        #statusText { font-weight: 600; margin-top: 14px; color: var(--text-main); font-size: 15px; letter-spacing: -0.02em; }
+        .stats-box {
+            background: rgba(28, 28, 30, 0.55);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            padding: 0;
+            border-radius: 14px;
+            margin-bottom: 18px;
+            font-size: 14px;
+            border: 1px solid var(--glass-border);
+            overflow: hidden;
+        }
+        .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; min-height: 44px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); color: var(--text-muted); }
+        .stat-row:last-child { border-bottom: none; }
+        .stat-row b { color: var(--text-main); font-weight: 600; }
+        .timer-text { color: var(--text-muted); font-size: 15px; font-weight: 500; margin-bottom: 18px; }
+        #estimateText { color: var(--text-muted); font-size: 13px; font-weight: 500; margin-bottom: 18px; display: none; }
+        #finalLink, .final-link { color: var(--primary); text-decoration: none; word-break: break-all; font-size: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+        #resetMsg { font-size: 13px; color: var(--primary-soft); cursor: pointer; display: block; margin-top: 14px; min-height: 44px; line-height: 44px; font-weight: 500; }
+        .trim-label { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; display: block; text-align: left; font-weight: 500; }
+        .success-headline { color: var(--success); font-weight: 700; font-size: 22px; margin-bottom: 24px; letter-spacing: -0.02em; }
+        .glass-inset {
+            background: rgba(28, 28, 30, 0.55);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--glass-border);
+            padding: 20px;
+            border-radius: 16px;
+            margin-bottom: 24px;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        }
+        .muted-hint { font-size: 13px; color: var(--text-muted); margin-top: 12px; line-height: 1.45; font-weight: 400; letter-spacing: -0.01em; }
+        @media (max-width: 600px) {
+            body { padding: 12px; }
+            .container { padding: 44px 20px 28px; width: 100%; max-width: 100%; margin: 0 auto; }
+            .menu-container { top: 16px; right: 16px; }
+            .input-group { flex-direction: column; gap: 10px; }
+            .stat-row { flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; }
+        }
+    </style>
+</head>
+<body data-page="podcast">
+    <div class="container">
+        <div class="menu-container" id="topMenu">
+            <div class="hamburger" id="menuBtn"><div></div><div></div><div></div></div>
+            <div class="dropdown-menu" id="dropdownMenu">
+                <a href="/" class="dropdown-link" data-nav="home">
+                    <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8h5z"/></svg>
+                    <span>Go to Home Page</span>
+                </a>
+                <a href="/podcast.html" class="dropdown-link" data-nav="podcast">
+                    <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V22h2v-4.28c3.28-.49 6-3.31 6-6.72h-1.7z"/></svg>
+                    <span>Podcast to Video</span>
+                </a>
+                <a href="/dubbing.html" class="dropdown-link" data-nav="dubbing">
+                    <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-4-8H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4zm2 14H4V6h16v12z"/></svg>
+                    <span>Video Audio Replacer</span>
+                </a>
+                <a href="/thumbnail.html" class="dropdown-link" data-nav="thumbnail">
+                    <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+                    <span>Upload Thumbnail</span>
+                </a>
+            </div>
+        </div>
+
+        <img src="/icon.webp" alt="MOGO FM AI" class="app-logo" ondblclick="clearStateAndReload()" title="Double click to reset page">
+        <h1>PODCAST TO VIDEO</h1>
+        <div class="subtitle" id="mainSubtitle">Select files to unlock video builder</div>
+
+        <div id="uploadLimitWarning">Upload Limit 95 MB only</div>
+
+        <div id="step1Area">
+            <ul class="file-picker-list" role="list">
+                <li class="file-picker-row" onclick="document.getElementById('imageFile').click()" role="button" tabindex="0">
+                    <span class="file-picker-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+                    </span>
+                    <div class="file-picker-text">
+                        <span class="file-picker-title">Cover image</span>
+                        <span class="file-picker-meta" id="imageLabel">Tap to choose</span>
+                    </div>
+                    <span class="file-picker-chevron" aria-hidden="true">›</span>
+                    <input type="file" id="imageFile" accept="image/*" style="display: none;" onchange="checkFiles()">
+                </li>
+                <li class="file-picker-row" onclick="document.getElementById('audioFile').click()" role="button" tabindex="0">
+                    <span class="file-picker-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+                    </span>
+                    <div class="file-picker-text">
+                        <span class="file-picker-title">Episode audio</span>
+                        <span class="file-picker-meta" id="audioLabel">Tap to choose</span>
+                    </div>
+                    <span class="file-picker-chevron" aria-hidden="true">›</span>
+                    <input type="file" id="audioFile" accept="audio/*" style="display: none;" onchange="checkFiles()">
+                </li>
+            </ul>
+        </div>
+
+        <div id="step2Area" style="display: none;">
+            <div class="instant-preview-box">
+                <img id="instantImg" src="">
+                <audio id="instantAud" controls></audio>
+            </div>
+            <form id="uploadForm">
+                <div class="input-group">
+                    <input type="text" id="seriesName" placeholder="Series Name" required>
+                    <input type="number" id="episodeNum" placeholder="Episode No" required>
+                </div>
+                
+                <div class="input-group">
+                    <div style="flex: 1;">
+                        <span class="trim-label">Start Time (HH:MM:SS)</span>
+                        <input type="text" id="startTime" value="00:00:00" required onchange="updateEstimate()">
+                    </div>
+                    <div style="flex: 1;">
+                        <span class="trim-label">End Time (HH:MM:SS)</span>
+                        <input type="text" id="endTime" placeholder="00:00:00" required onchange="updateEstimate()">
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <select id="videoQuality" required onchange="updateEstimate()">
+                        <option value="1080p">1080p (High Quality)</option>
+                        <option value="720p" selected>720p (Balanced)</option>
+                        <option value="480p">480p (Data Saver)</option>
+                    </select>
+                    <input type="number" id="timerInput" placeholder="Auto-Upload (sec)" value="30" required>
+                </div>
+                <div class="input-group">
+                    <select id="audioLang" required>
+                        <option value="Hindi" selected>Audio: Hindi</option>
+                        <option value="English">Audio: English</option>
+                        <option value="Urdu">Audio: Urdu</option>
+                    </select>
+                    <div class="ios-toggle-field">
+                        <span class="ios-toggle-label">English CC</span>
+                        <label class="ios-switch" for="translateEng">
+                            <input type="checkbox" id="translateEng">
+                            <span class="ios-switch-visual" aria-hidden="true"><span class="ios-switch-thumb"></span></span>
+                        </label>
+                    </div>
+                </div>
+                <div class="input-group">
+                    <select id="aiModel" required>
+                        <option value="base">Model: Base (Fast but risky)</option>
+                        <option value="small" selected>Model: Small (Recommended for Hindi)</option>
+                        <option value="medium">Model: Medium (Accurate but Slow)</option>
+                    </select>
+                </div>
+                <div id="estimateText">Estimated Size after Compression: ~0 MB</div>
+                <button type="submit" class="btn">Start Compression & AI</button>
+            </form>
+        </div>
+
+        <div id="loadingArea" style="display:none; margin-top:20px;">
+            <div id="statusText">Preparing Workspace...</div>
+            <div class="progress-container"><div id="progressBar" class="progress-bar"></div></div>
+            <p class="muted-hint">Please keep this tab open while processing continues.</p>
+            <span id="resetMsg" onclick="clearStateAndReload()">Stuck? Click here to Reset Page</span>
+        </div>
+
+        <div id="previewArea" style="display:none; margin-top:20px;">
+            <div class="stats-box">
+                <div class="stat-row"><span>Original</span><span><b id="origSize" style="color: #ff453a;">0</b> MB</span></div>
+                <div class="stat-row"><span>Final video</span><span><b id="newSize" style="color: var(--success);">0</b> MB</span></div>
+            </div>
+            <div class="timer-text" id="timerDisplay">Auto-Uploading in 30s...</div>
+            <video id="videoPlayer" controls crossorigin="anonymous"></video>
+            <button id="uploadR2Btn" class="btn btn-green">Upload Now (Skip Timer)</button>
+            <button id="cancelBtn" class="btn btn-red">Cancel & Delete</button>
+        </div>
+
+        <div id="finalArea" style="display:none; margin-top:20px;">
+            <p class="success-headline">Successfully Published</p>
+            <div class="glass-inset">
+                <a id="finalLink" class="final-link" href="#" target="_blank">Link</a>
+            </div>
+            <button onclick="clearStateAndReload()" class="btn">Create Another</button>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('menuBtn').onclick = (e) => { e.stopPropagation(); document.getElementById('dropdownMenu').classList.toggle('show'); };
+        document.onclick = () => document.getElementById('dropdownMenu').classList.remove('show');
+
+        let currentFolderId = ''; let countdownTimer; let pollingInterval; 
+        let audioDurationSecs = 0; let isUploading = false; 
+
+        window.addEventListener('beforeunload', function (e) {
+            if (isUploading) { e.preventDefault(); e.returnValue = 'Upload in progress. Leaving will cancel it.'; }
+        });
+
+        window.onload = () => {
+            if (window.location.search.includes('reset=1')) { clearStateAndReload(); return; }
+            if (window.location.hostname.includes('studio.mogofm.com')) { document.getElementById('uploadLimitWarning').style.display = 'block'; }
+            
+            if (localStorage.getItem('active_podcast_job')) {
+                currentFolderId = localStorage.getItem('active_podcast_job');
+                document.getElementById('step1Area').style.display = 'none';
+                document.getElementById('topMenu').style.display = 'none'; 
+                document.getElementById('loadingArea').style.display = 'block';
+                startPolling(currentFolderId);
+            }
+        };
+
+        // Format Secs to HH:MM:SS
+        function toHHMMSS(secs) {
+            var sec_num = parseInt(secs, 10);
+            var hours   = Math.floor(sec_num / 3600);
+            var minutes = Math.floor((sec_num - (hours * 3600)) / 60);
+            var seconds = sec_num - (hours * 3600) - (minutes * 60);
+            if (hours < 10) hours = "0" + hours;
+            if (minutes < 10) minutes = "0" + minutes;
+            if (seconds < 10) seconds = "0" + seconds;
+            return hours + ':' + minutes + ':' + seconds;
+        }
+
+        // Parse HH:MM:SS to Secs
+        function parseTime(timeStr) {
+            if (!timeStr) return 0;
+            const parts = timeStr.split(':');
+            if (parts.length === 3) return parseInt(parts[0])*3600 + parseInt(parts[1])*60 + parseInt(parts[2]);
+            return 0;
+        }
+
+        function checkFiles() {
+            const imgFile = document.getElementById('imageFile').files[0];
+            const audFile = document.getElementById('audioFile').files[0];
+
+            if (imgFile) document.getElementById('imageLabel').innerHTML = `<span class="file-name-ellip">${imgFile.name.substring(0, 22)}${imgFile.name.length > 22 ? '…' : ''}</span><span class="file-picker-done">Ready</span>`;
+            if (audFile) document.getElementById('audioLabel').innerHTML = `<span class="file-name-ellip">${audFile.name.substring(0, 22)}${audFile.name.length > 22 ? '…' : ''}</span><span class="file-picker-done">Ready</span>`;
+
+            if (imgFile && audFile) {
+                const tempAudio = document.createElement('audio');
+                tempAudio.preload = 'metadata';
+                tempAudio.onloadedmetadata = function() {
+                    window.URL.revokeObjectURL(tempAudio.src);
+                    audioDurationSecs = tempAudio.duration;
+                    
+                    // Auto-fill End Time with full audio length!
+                    document.getElementById('endTime').value = toHHMMSS(audioDurationSecs);
+                    
+                    document.getElementById('step2Area').style.display = 'block';
+                    document.getElementById('mainSubtitle').innerText = "Live Preview & Trim Settings";
+                    document.getElementById('instantImg').src = URL.createObjectURL(imgFile);
+                    document.getElementById('instantAud').src = URL.createObjectURL(audFile);
+                    updateEstimate(); 
+                };
+                tempAudio.src = URL.createObjectURL(audFile);
+            }
+        }
+
+        function updateEstimate() {
+            let duration = audioDurationSecs;
+            const sTime = parseTime(document.getElementById('startTime').value);
+            const eTime = parseTime(document.getElementById('endTime').value);
+            
+            if (eTime > sTime) duration = eTime - sTime;
+            if (duration <= 0) return;
+
+            let bitrateKbps = 2628; 
+            if (document.getElementById('videoQuality').value === '1080p') bitrateKbps = 4628;
+            if (document.getElementById('videoQuality').value === '480p') bitrateKbps = 1128;
+            document.getElementById('estimateText').style.display = 'block';
+            document.getElementById('estimateText').innerHTML = `Estimated Video Size: <b>~${((bitrateKbps * duration) / 8192).toFixed(2)} MB</b>`;
+        }
+
+        document.getElementById('uploadForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            document.getElementById('topMenu').style.display = 'none';
+
+            localStorage.setItem('podcast_series_name', document.getElementById('seriesName').value);
+            localStorage.setItem('podcast_episode_num', document.getElementById('episodeNum').value);
+            localStorage.setItem('podcast_timer', document.getElementById('timerInput').value);
+
+            document.getElementById('step1Area').style.display = 'none';
+            document.getElementById('step2Area').style.display = 'none';
+            document.getElementById('loadingArea').style.display = 'block';
+
+            const pb = document.getElementById('progressBar');
+            const st = document.getElementById('statusText');
+            pb.style.width = '0%';
+            st.innerText = "Uploading to Server... 0%";
+            isUploading = true; 
+
+            const fd = new FormData();
+            fd.append('image', document.getElementById('imageFile').files[0]);
+            fd.append('audio', document.getElementById('audioFile').files[0]);
+            fd.append('quality', document.getElementById('videoQuality').value);
+            fd.append('language', document.getElementById('audioLang').value);
+            fd.append('translate', document.getElementById('translateEng').checked);
+            fd.append('aiModel', document.getElementById('aiModel').value);
+            
+            // Send Trim timings to backend
+            fd.append('startTime', document.getElementById('startTime').value);
+            fd.append('endTime', document.getElementById('endTime').value);
+
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/process-podcast', true);
+
+            xhr.upload.onprogress = function(event) {
+                if (event.lengthComputable) {
+                    const pct = Math.round((event.loaded / event.total) * 100);
+                    pb.style.width = pct + '%'; st.innerText = `Uploading to Server... ${pct}%`;
+                }
+            };
+
+            xhr.onload = function() {
+                isUploading = false; 
+                if (xhr.status === 200) {
+                    currentFolderId = JSON.parse(xhr.responseText).jobId;
+                    localStorage.setItem('active_podcast_job', currentFolderId);
+                    startPolling(currentFolderId);
+                } else { alert("Error"); clearStateAndReload(); }
+            };
+            xhr.onerror = function() { isUploading = false; clearStateAndReload(); };
+            xhr.send(fd);
+        });
+
+        function startPolling(jobId) {
+            const checkStatus = async () => {
+                try {
+                    const res = await fetch(`/status/${jobId}`);
+                    if(res.status === 404) { clearInterval(pollingInterval); clearStateAndReload(); return; }
+                    const job = await res.json();
+                    const pb = document.getElementById('progressBar'); const st = document.getElementById('statusText');
+
+                    if (job.status === 'compressing') { pb.style.width = `50%`; st.innerText = `Merging & Trimming Video...`; } 
+                    else if (job.status === 'whisper') { pb.style.width = `${job.whisperProgress || 0}%`; st.innerText = `Generating ${job.langOriginal} Captions... ${job.whisperProgress || 0}%`; } 
+                    else if (job.status === 'translating') { pb.style.width = `${job.whisperProgress || 0}%`; st.innerText = `Auto-Translating to English... ${job.whisperProgress || 0}%`; } 
+                    else if (job.status === 'done') { clearInterval(pollingInterval); showPreview(job); } 
+                    else if (job.status === 'uploading_r2') { 
+                        pb.style.width = `${job.r2Progress || 0}%`; 
+                        st.innerText = `Uploading to Cloudflare R2... ${job.r2Progress || 0}%`; 
+                    }
+                    else if (job.status === 'r2_done') {
+                        clearInterval(pollingInterval);
+                        document.getElementById('loadingArea').style.display = 'none';
+                        document.getElementById('finalArea').style.display = 'block';
+                        document.getElementById('finalLink').href = job.finalUrl; 
+                        document.getElementById('finalLink').innerText = job.finalUrl;
+                        localStorage.removeItem('active_podcast_job'); 
+                        localStorage.removeItem('podcast_timer');
+                    }
+                    else if (job.status === 'error') { clearInterval(pollingInterval); alert(`Error: ${job.error}`); clearStateAndReload(); }
+                } catch(e) {}
+            };
+            checkStatus(); 
+            pollingInterval = setInterval(checkStatus, 2000);
+        }
+
+        function showPreview(job) {
+            document.getElementById('loadingArea').style.display = 'none';
+            document.getElementById('previewArea').style.display = 'block';
+            document.getElementById('origSize').innerText = job.origSizeMB;
+            document.getElementById('newSize').innerText = job.newSizeMB;
+
+            const video = document.getElementById('videoPlayer');
+            if (Hls.isSupported()) {
+                const hls = new Hls(); hls.loadSource(job.previewUrl); hls.attachMedia(video);
+                hls.on(Hls.Events.MANIFEST_PARSED, () => injectCaptions(job, video));
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = job.previewUrl; injectCaptions(job, video);
+            }
+
+            let timeLeft = parseInt(localStorage.getItem('podcast_timer')) || 30;
+            countdownTimer = setInterval(() => {
+                timeLeft--; document.getElementById('timerDisplay').innerText = `Auto-Uploading to R2 in ${timeLeft}s...`;
+                if (timeLeft <= 0) { clearInterval(countdownTimer); uploadToR2(); }
+            }, 1000);
+        }
+
+        function injectCaptions(job, videoElement) {
+            if (job.vttOriginal) { const t1 = document.createElement('track'); t1.kind = 'captions'; t1.label = job.langOriginal; t1.srclang = job.langOriginal.substring(0,2).toLowerCase(); t1.src = job.vttOriginal; t1.default = true; videoElement.appendChild(t1); }
+            if (job.vttEnglish) { const t2 = document.createElement('track'); t2.kind = 'captions'; t2.label = 'English (Auto-Translate)'; t2.srclang = 'en'; t2.src = job.vttEnglish; videoElement.appendChild(t2); }
+            setTimeout(() => { if (videoElement.textTracks && videoElement.textTracks.length > 0) videoElement.textTracks[0].mode = 'showing'; }, 500);
+        }
+
+        async function uploadToR2() {
+            clearInterval(countdownTimer);
+            document.getElementById('previewArea').style.display = 'none';
+            document.getElementById('loadingArea').style.display = 'block';
+            
+            const pb = document.getElementById('progressBar');
+            const st = document.getElementById('statusText');
+            pb.style.width = '0%';
+            st.innerText = "Uploading to Cloudflare R2... 0%";
+
+            const sName = localStorage.getItem('podcast_series_name') || 'Series';
+            const eNum = localStorage.getItem('podcast_episode_num') || '1';
+            
+            try {
+                const res = await fetch('/upload-to-r2', { 
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, 
+                    body: JSON.stringify({ folderId: currentFolderId, series: sName, episode: eNum }) 
+                });
+                
+                if (!res.ok) throw new Error("Connection failed");
+                // Flow moves back to startPolling for live r2 progress
+            } catch (err) {
+                alert("Network error: " + err.message);
+                clearStateAndReload();
+            }
+        }
+
+        document.getElementById('uploadR2Btn').addEventListener('click', uploadToR2);
+        document.getElementById('cancelBtn').addEventListener('click', async () => { clearInterval(countdownTimer); await fetch('/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folderId: currentFolderId }) }); clearStateAndReload(); });
+        
+        function clearStateAndReload() { 
+            localStorage.removeItem('active_podcast_job'); 
+            localStorage.removeItem('podcast_timer');
+            window.location.href = window.location.pathname; 
+        }
+    </script>
+</body>
+</html>

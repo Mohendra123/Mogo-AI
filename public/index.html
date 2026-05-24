@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MOGO FM CONVERTER</title>
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#f43f5e">
+    <link rel="apple-touch-icon" href="/icon.webp">
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --primary: #f43f5e;
+            --primary-soft: #fb7185;
+            --bg: #000000;
+            --text-main: #f8fafc;
+            --text-muted: #8e8e93;
+            --input-bg: #2c2c2e;
+            --success: #34c759;
+            --danger: #ff453a;
+            --glass-bg: rgba(28, 28, 30, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --glass-blur: blur(20px);
+        }
+        html { -webkit-tap-highlight-color: transparent; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            background-image: radial-gradient(circle at 50% 0%, rgba(244, 63, 94, 0.05) 0%, transparent 55%);
+            -webkit-font-smoothing: antialiased;
+        }
+        .container {
+            width: 100%;
+            max-width: 640px;
+            position: relative;
+            text-align: center;
+            padding: 40px 36px;
+            border-radius: 28px;
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.04);
+        }
+        .menu-container { position: absolute; top: 24px; right: 24px; z-index: 200; }
+        .hamburger {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            cursor: pointer;
+            padding: 12px;
+            min-width: 44px;
+            min-height: 44px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.14);
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            backdrop-filter: blur(40px);
+            -webkit-backdrop-filter: blur(40px);
+            transition: background 0.2s ease, transform 0.15s ease;
+        }
+        .hamburger:hover { background: rgba(255, 255, 255, 0.22); }
+        .hamburger:active { transform: scale(0.97); }
+        .hamburger div { width: 20px; height: 2px; background: rgba(255, 255, 255, 0.92); border-radius: 2px; }
+        .dropdown-menu {
+            display: none;
+            position: absolute;
+            top: 52px;
+            right: 0;
+            min-width: 220px;
+            flex-direction: column;
+            overflow: hidden;
+            text-align: left;
+            border-radius: 18px;
+            background: rgba(36, 36, 40, 0.82);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            backdrop-filter: blur(48px);
+            -webkit-backdrop-filter: blur(48px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+        }
+        .dropdown-menu.show { display: flex; animation: menuReveal 0.28s cubic-bezier(0.32, 0.72, 0, 1); }
+        @keyframes menuReveal { from { opacity: 0; transform: translateY(-8px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        .dropdown-menu a {
+            padding: 0 18px;
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+            color: rgba(255, 255, 255, 0.95);
+            text-decoration: none;
+            font-size: 15px;
+            font-weight: 500;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            transition: background 0.15s ease;
+        }
+        .dropdown-menu a:last-child { border-bottom: none; }
+        .dropdown-menu a:hover { background: rgba(255, 255, 255, 0.08); }
+        .dropdown-menu a:active { background: rgba(255, 255, 255, 0.12); }
+        .dropdown-link { gap: 12px; text-align: left; }
+        .dropdown-link .nav-ico { width: 22px; height: 22px; flex-shrink: 0; color: rgba(255, 255, 255, 0.95); }
+        body[data-page="home"] .dropdown-menu a[data-nav="home"],
+        body[data-page="podcast"] .dropdown-menu a[data-nav="podcast"],
+        body[data-page="dubbing"] .dropdown-menu a[data-nav="dubbing"],
+        body[data-page="thumbnail"] .dropdown-menu a[data-nav="thumbnail"] { display: none !important; }
+        .app-logo { width: 90px; height: 90px; border-radius: 22px; margin-bottom: 16px; object-fit: cover; border: 1px solid var(--glass-border); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
+        h1 { color: var(--text-main); margin-bottom: 8px; font-weight: 700; font-size: 26px; letter-spacing: -0.02em; }
+        .subtitle { color: var(--text-muted); font-size: 15px; margin-bottom: 24px; font-weight: 400; letter-spacing: -0.01em; }
+        #uploadLimitWarning {
+            display: none;
+            color: var(--text-muted);
+            font-size: 13px;
+            font-weight: 500;
+            margin: 0 auto 20px auto;
+            padding: 10px 16px;
+            border-radius: 12px;
+            width: fit-content;
+            background: rgba(28, 28, 30, 0.55);
+            border: 1px solid var(--glass-border);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+        }
+        .input-group { display: flex; gap: 12px; margin-bottom: 14px; width: 100%; }
+        input, select {
+            flex: 1;
+            width: 100%;
+            padding: 14px 16px;
+            min-height: 44px;
+            border-radius: 12px;
+            border: 1px solid transparent;
+            background: var(--input-bg);
+            color: var(--text-main);
+            outline: none;
+            font-family: inherit;
+            font-size: 15px;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        input::placeholder { color: rgba(142, 142, 147, 0.85); }
+        input:focus, select:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(244, 63, 94, 0.25), 0 0 20px rgba(244, 63, 94, 0.12);
+        }
+        .input-wrapper { flex: 1; display: flex; flex-direction: column; gap: 8px; text-align: left; }
+        .input-wrapper label { font-size: 12px; color: var(--text-muted); font-weight: 600; padding-left: 4px; letter-spacing: 0.02em; text-transform: uppercase; }
+        .sr-only {
+            position: absolute !important;
+            width: 1px !important;
+            height: 1px !important;
+            padding: 0 !important;
+            margin: -1px !important;
+            overflow: hidden !important;
+            clip: rect(0, 0, 0, 0) !important;
+            white-space: nowrap !important;
+            border: 0 !important;
+        }
+        .segment-control {
+            display: flex;
+            width: 100%;
+            padding: 3px;
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.35);
+            border: 1px solid var(--glass-border);
+            gap: 2px;
+        }
+        .seg-btn {
+            flex: 1;
+            min-height: 38px;
+            border: none;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            font-family: inherit;
+            color: var(--text-muted);
+            background: transparent;
+            cursor: pointer;
+            transition: color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        .seg-btn.active {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.14);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+        }
+        .seg-btn:active { transform: scale(0.97); }
+        .upload-area {
+            border: 1px dashed rgba(255, 255, 255, 0.14);
+            border-radius: 14px;
+            padding: 40px 20px;
+            cursor: pointer;
+            margin-bottom: 14px;
+            background: rgba(28, 28, 30, 0.45);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            transition: border-color 0.2s ease, background 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100px;
+        }
+        .upload-area:hover { border-color: rgba(244, 63, 94, 0.5); background: rgba(244, 63, 94, 0.08); }
+        .crop-preview-wrap {
+            display: none;
+            margin-bottom: 18px;
+            text-align: left;
+        }
+        .crop-preview-wrap.visible { display: block; }
+        .crop-preview-label {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-weight: 600;
+            padding-left: 4px;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+        .crop-preview-frame {
+            position: relative;
+            margin: 0 auto;
+            border-radius: 14px;
+            overflow: hidden;
+            background: #000;
+            border: 2px solid var(--primary);
+            box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.2), 0 12px 32px rgba(0, 0, 0, 0.45);
+            touch-action: none;
+            user-select: none;
+            height: auto;
+        }
+        .crop-preview-frame:not(.is-original)::before {
+            content: '';
+            display: block;
+            width: 100%;
+        }
+        .crop-preview-frame[data-ratio="16:9"] {
+            width: 100%;
+        }
+        .crop-preview-frame[data-ratio="16:9"]::before {
+            padding-top: 56.25%;
+        }
+        .crop-preview-frame[data-ratio="1:1"] {
+            width: min(100%, 360px);
+        }
+        .crop-preview-frame[data-ratio="1:1"]::before {
+            padding-top: 100%;
+        }
+        .crop-preview-frame[data-ratio="9:16"] {
+            width: min(62%, 300px);
+        }
+        .crop-preview-frame[data-ratio="9:16"]::before {
+            padding-top: 177.78%;
+        }
+        .crop-preview-frame.is-original {
+            width: 100%;
+            aspect-ratio: auto;
+            max-height: min(52vh, 380px);
+            border-color: var(--glass-border);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+            cursor: default;
+        }
+        .crop-preview-frame:not(.is-original) { cursor: grab; }
+        .crop-preview-frame.is-dragging { cursor: grabbing; }
+        .crop-preview-frame video {
+            display: block;
+            pointer-events: none;
+        }
+        .crop-preview-frame.is-original video {
+            width: 100%;
+            height: auto;
+            max-height: min(52vh, 380px);
+            object-fit: contain;
+        }
+        .crop-preview-frame:not(.is-original) video {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            object-position: 50% 50%;
+        }
+        .crop-preview-badge {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 2;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            padding: 5px 10px;
+            border-radius: 8px;
+            color: #fff;
+            background: rgba(244, 63, 94, 0.88);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+        .crop-preview-hint {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-top: 10px;
+            line-height: 1.45;
+            text-align: center;
+        }
+        .file-label { margin: 0; font-size: 15px; font-weight: 500; color: var(--text-muted); }
+        .btn, .btn-green, .btn-red {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            min-height: 44px;
+            padding: 14px 18px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+            margin-bottom: 12px;
+            transition: transform 0.12s ease, box-shadow 0.2s ease, filter 0.2s ease;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        .btn {
+            color: #fff;
+            background: linear-gradient(180deg, #f43f5e 0%, #fb7185 100%);
+            box-shadow: 0 4px 16px rgba(244, 63, 94, 0.35);
+        }
+        .btn:hover { filter: brightness(1.06); box-shadow: 0 6px 22px rgba(244, 63, 94, 0.45); }
+        .btn:active { transform: scale(0.97); }
+        .btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; filter: none; }
+        .btn-green {
+            color: #fff;
+            background: linear-gradient(180deg, #f43f5e 0%, #fb7185 100%);
+            box-shadow: 0 4px 16px rgba(244, 63, 94, 0.35);
+        }
+        .btn-green:hover { filter: brightness(1.06); box-shadow: 0 6px 22px rgba(244, 63, 94, 0.45); }
+        .btn-green:active { transform: scale(0.97); }
+        .btn-red {
+            background: rgba(28, 28, 30, 0.6);
+            color: var(--text-muted);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+        .btn-red:hover { color: var(--danger); border-color: rgba(255, 69, 58, 0.4); background: rgba(255, 69, 58, 0.08); }
+        .btn-red:active { transform: scale(0.97); }
+        video { width: 100%; max-height: 70vh; border-radius: 12px; background: #000; margin-bottom: 16px; border: 1px solid var(--glass-border); object-fit: contain; }
+        video.ratio-crop { object-fit: cover; }
+        ::cue { background-color: rgba(0, 0, 0, 0.82) !important; color: #fff !important; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', sans-serif !important; font-size: 16px !important; font-weight: 600 !important; }
+        .progress-container {
+            width: 100%;
+            height: 4px;
+            border-radius: 4px;
+            margin-top: 14px;
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.08);
+        }
+        .progress-bar {
+            height: 4px;
+            border-radius: 4px;
+            width: 0%;
+            background: linear-gradient(90deg, #f43f5e, #fb7185);
+            transition: width 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+            box-shadow: 0 0 10px 2px rgba(244, 63, 94, 0.85), 4px 0 14px rgba(251, 113, 133, 0.45);
+        }
+        #statusText { font-weight: 600; margin-top: 14px; color: var(--text-main); font-size: 15px; letter-spacing: -0.02em; }
+        #estimateText { color: var(--text-muted); font-size: 13px; font-weight: 500; margin-bottom: 18px; display: none; }
+        .stats-box {
+            background: rgba(28, 28, 30, 0.55);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            padding: 0;
+            border-radius: 14px;
+            margin-bottom: 18px;
+            font-size: 14px;
+            border: 1px solid var(--glass-border);
+            overflow: hidden;
+        }
+        .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; min-height: 44px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); color: var(--text-muted); }
+        .stat-row:last-child { border-bottom: none; }
+        .stat-row b { color: var(--text-main); font-weight: 600; }
+        .timer-text { color: var(--text-muted); font-size: 15px; font-weight: 500; margin-bottom: 18px; }
+        .ios-toggle-field {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            min-height: 44px;
+            padding: 0 16px;
+            background: rgba(28, 28, 30, 0.55);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+        }
+        .ios-toggle-label { font-size: 15px; font-weight: 500; color: var(--text-main); letter-spacing: -0.02em; }
+        .ios-switch {
+            position: relative;
+            width: 51px;
+            height: 31px;
+            flex-shrink: 0;
+            cursor: pointer;
+        }
+        .ios-switch input {
+            position: absolute;
+            opacity: 0;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            cursor: pointer;
+            z-index: 1;
+        }
+        .ios-switch-visual {
+            display: block;
+            width: 51px;
+            height: 31px;
+            border-radius: 16px;
+            background: rgba(120, 120, 128, 0.36);
+            transition: background 0.2s ease;
+            position: relative;
+        }
+        .ios-switch input:checked + .ios-switch-visual { background: var(--primary); }
+        .ios-switch-thumb {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 27px;
+            height: 27px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15), 0 1px 1px rgba(0, 0, 0, 0.16);
+            transition: transform 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+        }
+        .ios-switch input:checked + .ios-switch-visual .ios-switch-thumb { transform: translateX(20px); }
+        .muted-hint { font-size: 13px; color: var(--text-muted); margin-top: 15px; text-align: center; line-height: 1.45; font-weight: 400; letter-spacing: -0.01em; }
+        .loading-r2-stack { text-align: center; }
+        .loading-title { font-size: 15px; font-weight: 600; color: var(--text-main); letter-spacing: -0.02em; margin: 0; }
+        .loading-r2-stack .muted-hint { margin-top: 10px; margin-bottom: 0; }
+        .upload-icon-svg { width: 40px; height: 40px; margin-bottom: 12px; color: rgba(255, 255, 255, 0.92); display: block; margin-left: auto; margin-right: auto; }
+        .success-headline { color: var(--success); font-weight: 700; font-size: 22px; margin-bottom: 24px; letter-spacing: -0.02em; }
+        .glass-inset {
+            background: rgba(28, 28, 30, 0.55);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--glass-border);
+            padding: 20px;
+            border-radius: 16px;
+            margin-bottom: 24px;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        }
+        #finalLink, .final-link { color: var(--primary); text-decoration: none; word-break: break-all; font-size: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+        #finalLink:hover, .final-link:hover { text-decoration: underline; }
+        @media (max-width: 600px) {
+            body { padding: 12px; align-items: center; }
+            .container { padding: 44px 20px 28px; border-radius: 28px; width: 100%; max-width: 100%; margin: 0 auto; }
+            .menu-container { top: 16px; right: 16px; }
+            .app-logo { width: 76px; height: 76px; border-radius: 20px; }
+            h1 { font-size: 22px; }
+            .subtitle { font-size: 14px; margin-bottom: 20px; }
+            .input-group { flex-direction: column; gap: 10px; margin-bottom: 12px; }
+            .stat-row { flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; }
+        }
+    </style>
+</head>
+<body data-page="home">
+    <div class="container">
+        
+        <div class="menu-container" id="topMenu">
+            <div class="hamburger" id="menuBtn">
+                <div></div><div></div><div></div>
+            </div>
+            <div class="dropdown-menu" id="dropdownMenu">
+                <a href="/" class="dropdown-link" data-nav="home">
+                    <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8h5z"/></svg>
+                    <span>Go to Home Page</span>
+                </a>
+                <a href="/podcast.html" class="dropdown-link" data-nav="podcast">
+                    <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V22h2v-4.28c3.28-.49 6-3.31 6-6.72h-1.7z"/></svg>
+                    <span>Podcast to Video</span>
+                </a>
+                <a href="/dubbing.html" class="dropdown-link" data-nav="dubbing">
+                    <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-4-8H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4zm2 14H4V6h16v12z"/></svg>
+                    <span>Video Audio Replacer</span>
+                </a>
+                <a href="/thumbnail.html" class="dropdown-link" data-nav="thumbnail">
+                    <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+                    <span>Upload Thumbnail</span>
+                </a>
+            </div>
+        </div>
+        
+        <img src="/icon.webp" alt="MOGO FM AI Converter" class="app-logo">
+        
+        <h1>MOGO FM CONVERTER</h1>
+        <div class="subtitle">HLS Conversion Compression & AI Auto-Captions</div>
+
+        <div id="uploadLimitWarning">Upload Limit 95 MB only</div>
+
+        <form id="uploadForm">
+            <div class="input-group">
+                <input type="text" id="seriesName" placeholder="Series Name" required>
+                <input type="number" id="episodeNum" placeholder="Episode No" required>
+            </div>
+            <div class="input-group">
+                <select id="quality" required>
+                    <option value="1080p">1080p (High Quality)</option>
+                    <option value="720p" selected>720p (Balanced)</option>
+                    <option value="480p">480p (Data Saver)</option>
+                </select>
+                <input type="number" id="timerInput" placeholder="Auto-Upload (sec)" value="30" required>
+            </div>
+            
+            <div class="input-group">
+                <select id="audioLang" required>
+                    <option value="Hindi" selected>Audio: Hindi</option>
+                    <option value="English">Audio: English</option>
+                    <option value="Urdu">Audio: Urdu</option>
+                </select>
+                <div class="ios-toggle-field">
+                    <span class="ios-toggle-label">English CC</span>
+                    <label class="ios-switch" for="translateEng">
+                        <input type="checkbox" id="translateEng" checked>
+                        <span class="ios-switch-visual" aria-hidden="true"><span class="ios-switch-thumb"></span></span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="input-group">
+                <select id="aiModel" required>
+                    <option value="base">Model: Base (Fast but risky)</option>
+                    <option value="small" selected>Model: Small (Recommended for Hindi)</option>
+                    <option value="medium">Model: Medium (Accurate but Slow)</option>
+                </select>
+            </div>
+
+            <div class="input-group">
+                <div class="input-wrapper">
+                    <label for="aspectRatio">Video aspect ratio</label>
+                    <div class="segment-control" id="aspectSegment" role="tablist" aria-label="Video aspect ratio">
+                        <button type="button" class="seg-btn active" data-value="original" role="tab" aria-selected="true">Original</button>
+                        <button type="button" class="seg-btn" data-value="16:9" role="tab" aria-selected="false">16:9</button>
+                        <button type="button" class="seg-btn" data-value="9:16" role="tab" aria-selected="false">9:16</button>
+                        <button type="button" class="seg-btn" data-value="1:1" role="tab" aria-selected="false">1:1</button>
+                    </div>
+                    <select id="aspectRatio" class="sr-only" tabindex="-1" aria-hidden="true">
+                        <option value="original" selected>Keep Original</option>
+                        <option value="16:9">16:9 (Landscape)</option>
+                        <option value="9:16">9:16 (Shorts / Reels)</option>
+                        <option value="1:1">1:1 (Square)</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+                <svg class="upload-icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-4-8H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4zm2 14H4V6h16v12z"/></svg>
+                <h3 id="fileLabel" class="file-label">Click to Select Video</h3>
+                <input type="file" id="fileInput" accept="video/*" style="display:none;">
+            </div>
+
+            <div id="cropPreviewWrap" class="crop-preview-wrap">
+                <div class="crop-preview-label">Live crop preview</div>
+                <div class="crop-preview-frame is-original" id="cropPreviewFrame">
+                    <span class="crop-preview-badge" id="cropPreviewBadge">Original</span>
+                    <video id="sourcePreview" muted playsinline loop></video>
+                </div>
+                <p class="crop-preview-hint" id="cropPreviewHint">Select a ratio above, then drag the video to position the crop.</p>
+            </div>
+
+            <div id="estimateText">Estimated Size after Compression: ~0 MB</div>
+            <button type="submit" class="btn">Start Compression & AI</button>
+        </form>
+
+        <div id="loadingArea" style="display:none; margin-top:20px;">
+            <div id="statusText">Preparing Workspace...</div>
+            <div class="progress-container">
+                <div id="progressBar" class="progress-bar"></div>
+            </div>
+            <p class="muted-hint">Please keep this tab open until upload reaches 100%</p>
+        </div>
+
+        <div id="previewArea" style="display:none; margin-top:20px;">
+            <div class="stats-box">
+                <div class="stat-row"><span>Original</span><span><b id="origSize" style="color: #ff453a;">0</b> MB</span></div>
+                <div class="stat-row"><span>Compressed</span><span><b id="newSize" style="color: var(--success);">0</b> MB</span></div>
+            </div>
+
+            <div class="timer-text" id="timerDisplay">Auto-Uploading in 30s...</div>
+            
+            <video id="videoPlayer" controls crossorigin="anonymous"></video>
+            
+            <button id="uploadR2Btn" class="btn btn-green">Upload Now (Skip Timer)</button>
+            <button id="cancelBtn" class="btn btn-red">Cancel & Delete</button>
+        </div>
+
+        <div id="finalArea" style="display:none; margin-top:20px;">
+            <p class="success-headline">Successfully Published</p>
+            <div class="glass-inset">
+                <a id="finalLink" class="final-link" href="#" target="_blank">Link</a>
+            </div>
+            <button onclick="clearStateAndReload()" class="btn">Convert Another Episode</button>
+        </div>
+    </div>
+
+    <script>
+        const menuBtn = document.getElementById('menuBtn');
+        const dropdownMenu = document.getElementById('dropdownMenu');
+        menuBtn.addEventListener('click', (e) => { e.stopPropagation(); dropdownMenu.classList.toggle('show'); });
+        document.addEventListener('click', (e) => { if (!dropdownMenu.contains(e.target) && !menuBtn.contains(e.target)) dropdownMenu.classList.remove('show'); });
+
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').then(reg => console.log('PWA Registered!')).catch(err => console.log('PWA Failed', err));
+            });
+        }
+
+        let currentFolderId = ''; let countdownTimer; let pollingInterval; let selectedVideoDuration = 0;
+        let isUploading = false; // Block refresh var
+
+        window.addEventListener('beforeunload', function (e) {
+            if (isUploading) { e.preventDefault(); e.returnValue = 'Upload in progress. Leaving will cancel it.'; }
+        });
+
+        window.onload = () => {
+            if (window.location.hostname.includes('studio.mogofm.com')) {
+                document.getElementById('uploadLimitWarning').style.display = 'block';
+            }
+            const savedJob = localStorage.getItem('active_mogo_job');
+            if (savedJob) {
+                currentFolderId = savedJob;
+                document.getElementById('uploadForm').style.display = 'none';
+                document.getElementById('topMenu').style.display = 'none'; // Hide menu on reload
+                document.getElementById('loadingArea').style.display = 'block';
+                startPolling(currentFolderId);
+            }
+        };
+
+        let previewObjectUrl = '';
+        let cropFocusX = 0.5;
+        let cropFocusY = 0.5;
+        let isCropDragging = false;
+        let cropDragStart = null;
+
+        const aspectSelect = document.getElementById('aspectRatio');
+        const aspectSegment = document.getElementById('aspectSegment');
+        const cropPreviewWrap = document.getElementById('cropPreviewWrap');
+        const cropPreviewFrame = document.getElementById('cropPreviewFrame');
+        const cropPreviewBadge = document.getElementById('cropPreviewBadge');
+        const cropPreviewHint = document.getElementById('cropPreviewHint');
+        const sourcePreview = document.getElementById('sourcePreview');
+
+        function aspectRatioCss(value) {
+            if (value === '16:9') return '16 / 9';
+            if (value === '9:16') return '9 / 16';
+            if (value === '1:1') return '1 / 1';
+            return '';
+        }
+
+        function syncAspectSegmentButtons() {
+            aspectSegment.querySelectorAll('.seg-btn').forEach(function(btn) {
+                const on = btn.getAttribute('data-value') === aspectSelect.value;
+                btn.classList.toggle('active', on);
+                btn.setAttribute('aria-selected', on ? 'true' : 'false');
+            });
+        }
+
+        function applyCropFocusToPreview() {
+            sourcePreview.style.objectPosition = `${(cropFocusX * 100).toFixed(1)}% ${(cropFocusY * 100).toFixed(1)}%`;
+        }
+
+        function updateCropPreview() {
+            const ratio = aspectSelect.value;
+            const isOriginal = ratio === 'original';
+
+            cropPreviewBadge.textContent = isOriginal ? 'Original' : ratio;
+            cropPreviewFrame.classList.toggle('is-original', isOriginal);
+
+            if (isOriginal) {
+                cropPreviewFrame.removeAttribute('data-ratio');
+                cropPreviewHint.textContent = 'Full video — no crop. Pick 16:9, 9:16, or 1:1 to frame before upload.';
+            } else {
+                cropPreviewFrame.setAttribute('data-ratio', ratio);
+                cropPreviewHint.textContent = 'Drag the video to move the crop. Pink border = final output frame.';
+            }
+
+            if (!isOriginal) {
+                applyCropFocusToPreview();
+            } else {
+                cropFocusX = 0.5;
+                cropFocusY = 0.5;
+                sourcePreview.style.objectPosition = '';
+            }
+        }
+
+        function showSourcePreview(file) {
+            if (previewObjectUrl) {
+                URL.revokeObjectURL(previewObjectUrl);
+                previewObjectUrl = '';
+            }
+            previewObjectUrl = URL.createObjectURL(file);
+            sourcePreview.src = previewObjectUrl;
+            cropPreviewWrap.classList.add('visible');
+            updateCropPreview();
+            sourcePreview.play().catch(function() {});
+        }
+
+        document.getElementById('fileInput').addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                const file = e.target.files[0];
+                document.getElementById('fileLabel').innerHTML = `<span style="color:var(--text-main);">${file.name} <br><span style="font-size:13px; color:var(--text-muted);">(${(file.size / (1024 * 1024)).toFixed(1)} MB)</span></span>`;
+                showSourcePreview(file);
+                sourcePreview.onloadedmetadata = function() {
+                    selectedVideoDuration = sourcePreview.duration;
+                    updateEstimate();
+                };
+            }
+        });
+
+        document.getElementById('quality').addEventListener('change', updateEstimate);
+
+        aspectSegment.addEventListener('click', function(e) {
+            const btn = e.target.closest('.seg-btn');
+            if (!btn) return;
+            aspectSelect.value = btn.getAttribute('data-value');
+            syncAspectSegmentButtons();
+            if (aspectSelect.value === 'original') {
+                cropFocusX = 0.5;
+                cropFocusY = 0.5;
+            }
+            updateCropPreview();
+        });
+
+        function onCropPointerDown(clientX, clientY) {
+            if (aspectSelect.value === 'original' || !sourcePreview.src) return;
+            isCropDragging = true;
+            cropDragStart = { x: clientX, y: clientY, focusX: cropFocusX, focusY: cropFocusY };
+            cropPreviewFrame.classList.add('is-dragging');
+        }
+
+        function onCropPointerMove(clientX, clientY) {
+            if (!isCropDragging || !cropDragStart) return;
+            const rect = cropPreviewFrame.getBoundingClientRect();
+            const dx = (clientX - cropDragStart.x) / Math.max(rect.width, 1);
+            const dy = (clientY - cropDragStart.y) / Math.max(rect.height, 1);
+            cropFocusX = Math.max(0, Math.min(1, cropDragStart.focusX - dx));
+            cropFocusY = Math.max(0, Math.min(1, cropDragStart.focusY - dy));
+            applyCropFocusToPreview();
+        }
+
+        function onCropPointerUp() {
+            isCropDragging = false;
+            cropDragStart = null;
+            cropPreviewFrame.classList.remove('is-dragging');
+        }
+
+        cropPreviewFrame.addEventListener('mousedown', function(e) {
+            e.preventDefault();
+            onCropPointerDown(e.clientX, e.clientY);
+        });
+        window.addEventListener('mousemove', function(e) { onCropPointerMove(e.clientX, e.clientY); });
+        window.addEventListener('mouseup', onCropPointerUp);
+
+        cropPreviewFrame.addEventListener('touchstart', function(e) {
+            if (!e.touches[0]) return;
+            onCropPointerDown(e.touches[0].clientX, e.touches[0].clientY);
+        }, { passive: true });
+        cropPreviewFrame.addEventListener('touchmove', function(e) {
+            if (!e.touches[0]) return;
+            onCropPointerMove(e.touches[0].clientX, e.touches[0].clientY);
+        }, { passive: true });
+        cropPreviewFrame.addEventListener('touchend', onCropPointerUp);
+
+        syncAspectSegmentButtons();
+        updateCropPreview();
+
+        function updateEstimate() {
+            if (!selectedVideoDuration) return;
+            let bitrateKbps = 2628; 
+            if (document.getElementById('quality').value === '1080p') bitrateKbps = 4628;
+            if (document.getElementById('quality').value === '480p') bitrateKbps = 1128;
+            const estDiv = document.getElementById('estimateText');
+            estDiv.style.display = 'block';
+            estDiv.innerHTML = `Estimated Compressed Size: <b>~${((bitrateKbps * selectedVideoDuration) / 8192).toFixed(2)} MB</b>`;
+        }
+
+        document.getElementById('uploadForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const fileInput = document.getElementById('fileInput');
+            if(!fileInput.files.length) return alert("Please select a video!");
+
+            document.getElementById('topMenu').style.display = 'none'; // Hide 3-line menu
+
+            localStorage.setItem('mogo_custom_timer', document.getElementById('timerInput').value);
+            localStorage.setItem('mogo_series_name', document.getElementById('seriesName').value);
+            localStorage.setItem('mogo_episode_num', document.getElementById('episodeNum').value);
+            localStorage.setItem('mogo_aspect_ratio', aspectSelect.value);
+            localStorage.setItem('mogo_crop_focus_x', String(cropFocusX));
+            localStorage.setItem('mogo_crop_focus_y', String(cropFocusY));
+
+            document.getElementById('uploadForm').style.display = 'none';
+            document.getElementById('loadingArea').style.display = 'block';
+
+            const pb = document.getElementById('progressBar');
+            const st = document.getElementById('statusText');
+            st.innerText = "Uploading to Server... 0%";
+            pb.style.width = '0%';
+            isUploading = true;
+
+            const fd = new FormData();
+            fd.append('video', fileInput.files[0]);
+            fd.append('quality', document.getElementById('quality').value);
+            fd.append('language', document.getElementById('audioLang').value);
+            fd.append('translate', document.getElementById('translateEng').checked);
+            fd.append('aiModel', document.getElementById('aiModel').value);
+            fd.append('aspectRatio', aspectSelect.value);
+            if (aspectSelect.value !== 'original') {
+                fd.append('cropFocusX', String(cropFocusX));
+                fd.append('cropFocusY', String(cropFocusY));
+            }
+
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/process', true);
+
+            xhr.upload.onprogress = function(event) {
+                if (event.lengthComputable) {
+                    const pct = Math.round((event.loaded / event.total) * 100);
+                    pb.style.width = pct + '%';
+                    st.innerText = `Uploading to Server... ${pct}%`;
+                }
+            };
+
+            xhr.onload = function() {
+                isUploading = false;
+                if (xhr.status === 200) {
+                    const data = JSON.parse(xhr.responseText);
+                    currentFolderId = data.jobId;
+                    localStorage.setItem('active_mogo_job', currentFolderId);
+                    startPolling(currentFolderId);
+                } else {
+                    alert(`Upload Failed! Status Code: ${xhr.status}. Cloudflare 100MB Limit issue?`);
+                    window.location.reload();
+                }
+            };
+
+            xhr.onerror = function() { isUploading = false; alert('Network Error!'); window.location.reload(); };
+            xhr.send(fd);
+        });
+
+        function startPolling(jobId) {
+            const checkStatus = async () => {
+                try {
+                    const res = await fetch(`/status/${jobId}`);
+                    if(res.status === 404) { clearInterval(pollingInterval); clearStateAndReload(); return; }
+
+                    const job = await res.json();
+                    const pb = document.getElementById('progressBar');
+                    const st = document.getElementById('statusText');
+
+                    if (job.status === 'compressing') {
+                        pb.style.width = `${job.progress}%`; st.innerText = `Compressing Video... ${job.progress}%`;
+                    } else if (job.status === 'whisper') {
+                        pb.style.width = `${job.whisperProgress || 0}%`; st.innerText = `Generating ${job.langOriginal} Captions... ${job.whisperProgress || 0}%`;
+                    } else if (job.status === 'translating') {
+                        pb.style.width = `${job.whisperProgress || 0}%`; st.innerText = `Auto-Translating to English... ${job.whisperProgress || 0}%`;
+                    } else if (job.status === 'done') {
+                        clearInterval(pollingInterval); showPreview(job);
+                    } else if (job.status === 'error') {
+                        clearInterval(pollingInterval); alert(`Error: ${job.error}`); clearStateAndReload();
+                    }
+                } catch(e) {}
+            };
+            checkStatus(); // RUN IMMEDIATELY (No blank waiting screen)
+            pollingInterval = setInterval(checkStatus, 2000);
+        }
+
+        function showPreview(job) {
+            document.getElementById('loadingArea').style.display = 'none';
+            document.getElementById('previewArea').style.display = 'block';
+            document.getElementById('origSize').innerText = job.origSizeMB;
+            document.getElementById('newSize').innerText = job.newSizeMB;
+
+            const video = document.getElementById('videoPlayer');
+            while (video.firstChild) video.removeChild(video.firstChild);
+
+            const savedRatio = localStorage.getItem('mogo_aspect_ratio') || 'original';
+            const ratioCss = aspectRatioCss(savedRatio);
+            if (ratioCss) {
+                video.style.aspectRatio = ratioCss;
+                video.classList.add('ratio-crop');
+            } else {
+                video.style.aspectRatio = '';
+                video.classList.remove('ratio-crop');
+            }
+
+            if (Hls.isSupported()) {
+                const hls = new Hls(); hls.loadSource(job.previewUrl); hls.attachMedia(video);
+                hls.on(Hls.Events.MANIFEST_PARSED, () => injectCaptions(job, video));
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = job.previewUrl; injectCaptions(job, video);
+            }
+
+            let timeLeft = parseInt(localStorage.getItem('mogo_custom_timer')) || 30;
+            document.getElementById('timerDisplay').innerText = `Auto-Uploading to R2 in ${timeLeft}s...`;
+            countdownTimer = setInterval(() => {
+                timeLeft--; document.getElementById('timerDisplay').innerText = `Auto-Uploading to R2 in ${timeLeft}s...`;
+                if (timeLeft <= 0) { clearInterval(countdownTimer); uploadToR2(); }
+            }, 1000);
+        }
+
+        function injectCaptions(job, videoElement) {
+            if (job.vttOriginal) {
+                const t1 = document.createElement('track'); t1.kind = 'captions'; t1.label = job.langOriginal; t1.srclang = job.langOriginal.substring(0,2).toLowerCase(); t1.src = job.vttOriginal; t1.default = true; videoElement.appendChild(t1);
+            }
+            if (job.vttEnglish) {
+                const t2 = document.createElement('track'); t2.kind = 'captions'; t2.label = 'English (Auto-Translate)'; t2.srclang = 'en'; t2.src = job.vttEnglish; videoElement.appendChild(t2);
+            }
+            setTimeout(() => { if (videoElement.textTracks && videoElement.textTracks.length > 0) videoElement.textTracks[0].mode = 'showing'; }, 500);
+        }
+
+        async function uploadToR2() {
+            clearInterval(countdownTimer);
+            document.getElementById('previewArea').style.display = 'none';
+            document.getElementById('loadingArea').innerHTML = '<div class="loading-r2-stack"><p class="loading-title" id="statusText">Uploading Final Files to Cloudflare R2…</p><p class="muted-hint loading-r2-hint">Uploading final video and captions to Cloudflare R2. Do not close this tab.</p></div>';
+            document.getElementById('loadingArea').style.display = 'block';
+
+            const sName = localStorage.getItem('mogo_series_name') || 'Series';
+            const eNum = localStorage.getItem('mogo_episode_num') || '1';
+
+            const res = await fetch('/upload-to-r2', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folderId: currentFolderId, series: sName, episode: eNum }) });
+            const data = await res.json();
+
+            document.getElementById('loadingArea').style.display = 'none';
+            document.getElementById('finalArea').style.display = 'block';
+            document.getElementById('finalLink').href = data.url; document.getElementById('finalLink').innerText = data.url;
+            localStorage.removeItem('active_mogo_job'); localStorage.removeItem('mogo_custom_timer'); localStorage.removeItem('mogo_aspect_ratio'); localStorage.removeItem('mogo_crop_focus_x'); localStorage.removeItem('mogo_crop_focus_y');
+        }
+
+        document.getElementById('uploadR2Btn').addEventListener('click', uploadToR2);
+        document.getElementById('cancelBtn').addEventListener('click', async () => {
+            clearInterval(countdownTimer); document.getElementById('cancelBtn').innerText = "Deleting...";
+            await fetch('/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folderId: currentFolderId }) }); clearStateAndReload();
+        });
+
+        function clearStateAndReload() {
+            localStorage.removeItem('active_mogo_job');
+            localStorage.removeItem('mogo_custom_timer');
+            localStorage.removeItem('mogo_aspect_ratio');
+            localStorage.removeItem('mogo_crop_focus_x');
+            localStorage.removeItem('mogo_crop_focus_y');
+            window.location.reload();
+        }
+    </script>
+</body>
+</html>

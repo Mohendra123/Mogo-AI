@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MOGO Thumbnail Maker</title>
+
+    <meta name="theme-color" content="#f43f5e">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css" crossorigin="anonymous">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js" crossorigin="anonymous"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --primary: #f43f5e;
+            --primary-soft: #fb7185;
+            --bg: #000000;
+            --text-main: #f8fafc;
+            --text-muted: #8e8e93;
+            --input-bg: #2c2c2e;
+            --success: #34c759;
+            --glass-bg: rgba(28, 28, 30, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --glass-blur: blur(20px);
+        }
+        html { -webkit-tap-highlight-color: transparent; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            background-image: radial-gradient(circle at 50% 0%, rgba(244, 63, 94, 0.05) 0%, transparent 55%);
+            -webkit-font-smoothing: antialiased;
+        }
+        .container {
+            width: 100%;
+            max-width: 640px;
+            position: relative;
+            text-align: center;
+            padding: 40px 36px;
+            border-radius: 28px;
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.04);
+        }
+        .menu-container { position: absolute; top: 24px; right: 24px; z-index: 200; }
+        .hamburger {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            cursor: pointer;
+            padding: 12px;
+            min-width: 44px;
+            min-height: 44px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.14);
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            backdrop-filter: blur(40px);
+            -webkit-backdrop-filter: blur(40px);
+            transition: background 0.2s ease, transform 0.15s ease;
+        }
+        .hamburger:hover { background: rgba(255, 255, 255, 0.22); }
+        .hamburger:active { transform: scale(0.97); }
+        .hamburger div { width: 20px; height: 2px; background: rgba(255, 255, 255, 0.92); border-radius: 2px; }
+        .dropdown-menu {
+            display: none;
+            position: absolute;
+            top: 52px;
+            right: 0;
+            min-width: 220px;
+            flex-direction: column;
+            overflow: hidden;
+            text-align: left;
+            border-radius: 18px;
+            background: rgba(36, 36, 40, 0.82);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            backdrop-filter: blur(48px);
+            -webkit-backdrop-filter: blur(48px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+        }
+        .dropdown-menu.show { display: flex; animation: menuReveal 0.28s cubic-bezier(0.32, 0.72, 0, 1); }
+        @keyframes menuReveal { from { opacity: 0; transform: translateY(-8px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        .dropdown-menu a {
+            padding: 0 18px;
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+            color: rgba(255, 255, 255, 0.95);
+            text-decoration: none;
+            font-size: 15px;
+            font-weight: 500;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            transition: background 0.15s ease;
+        }
+        .dropdown-menu a:last-child { border-bottom: none; }
+        .dropdown-menu a:hover { background: rgba(255, 255, 255, 0.08); }
+        .dropdown-menu a:active { background: rgba(255, 255, 255, 0.12); }
+        .dropdown-link { gap: 12px; text-align: left; }
+        .dropdown-link .nav-ico { width: 22px; height: 22px; flex-shrink: 0; color: rgba(255, 255, 255, 0.95); }
+        body[data-page="home"] .dropdown-menu a[data-nav="home"],
+        body[data-page="podcast"] .dropdown-menu a[data-nav="podcast"],
+        body[data-page="dubbing"] .dropdown-menu a[data-nav="dubbing"],
+        body[data-page="thumbnail"] .dropdown-menu a[data-nav="thumbnail"] { display: none !important; }
+        h1 { color: var(--text-main); margin-bottom: 8px; font-weight: 700; font-size: 24px; letter-spacing: -0.02em; }
+        .subtitle { color: var(--text-muted); font-size: 15px; margin-bottom: 24px; font-weight: 400; letter-spacing: -0.01em; }
+        .upload-area {
+            border: 1px dashed rgba(255, 255, 255, 0.14);
+            border-radius: 14px;
+            padding: 32px 20px;
+            min-height: 120px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            margin-bottom: 20px;
+            background: rgba(28, 28, 30, 0.45);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            transition: border-color 0.2s ease, background 0.2s ease;
+        }
+        .upload-area:hover { border-color: rgba(244, 63, 94, 0.5); background: rgba(244, 63, 94, 0.08); }
+        .upload-icon-svg { width: 40px; height: 40px; margin-bottom: 12px; color: rgba(255, 255, 255, 0.92); display: block; margin-left: auto; margin-right: auto; }
+        .file-label { margin: 0; font-size: 15px; font-weight: 500; color: var(--text-muted); }
+        .input-group { display: flex; gap: 12px; margin-bottom: 14px; width: 100%; text-align: left; }
+        .input-wrapper { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+        .input-wrapper label { font-size: 12px; color: var(--text-muted); font-weight: 600; padding-left: 4px; letter-spacing: 0.02em; text-transform: uppercase; }
+        .sr-only {
+            position: absolute !important;
+            width: 1px !important;
+            height: 1px !important;
+            padding: 0 !important;
+            margin: -1px !important;
+            overflow: hidden !important;
+            clip: rect(0, 0, 0, 0) !important;
+            white-space: nowrap !important;
+            border: 0 !important;
+        }
+        .segment-control {
+            display: flex;
+            width: 100%;
+            padding: 3px;
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.35);
+            border: 1px solid var(--glass-border);
+            gap: 2px;
+        }
+        .seg-btn {
+            flex: 1;
+            min-height: 38px;
+            border: none;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            font-family: inherit;
+            color: var(--text-muted);
+            background: transparent;
+            cursor: pointer;
+            transition: color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        .seg-btn.active {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.14);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+        }
+        .seg-btn:active { transform: scale(0.97); }
+        input[type="text"], select {
+            width: 100%;
+            padding: 14px 16px;
+            min-height: 44px;
+            border-radius: 12px;
+            border: 1px solid transparent;
+            background: var(--input-bg);
+            color: var(--text-main);
+            outline: none;
+            font-family: inherit;
+            font-size: 15px;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        input::placeholder { color: rgba(142, 142, 147, 0.85); }
+        input:focus, select:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(244, 63, 94, 0.25), 0 0 20px rgba(244, 63, 94, 0.12);
+        }
+        .quality-accent { color: var(--primary); font-weight: 600; }
+        input[type="range"] { -webkit-appearance: none; width: 100%; background: transparent; padding: 14px 0; min-height: 44px; border: none; }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 22px;
+            width: 22px;
+            border-radius: 50%;
+            background: linear-gradient(180deg, #f43f5e, #fb7185);
+            cursor: pointer;
+            margin-top: -8px;
+            box-shadow: 0 0 12px rgba(244, 63, 94, 0.55);
+            border: 2px solid rgba(255, 255, 255, 0.35);
+        }
+        input[type="range"]::-webkit-slider-runnable-track { width: 100%; height: 6px; cursor: pointer; background: rgba(255, 255, 255, 0.1); border-radius: 3px; }
+        input[type="range"]::-moz-range-thumb {
+            height: 22px;
+            width: 22px;
+            border-radius: 50%;
+            background: linear-gradient(180deg, #f43f5e, #fb7185);
+            cursor: pointer;
+            border: 2px solid rgba(255, 255, 255, 0.35);
+            box-shadow: 0 0 12px rgba(244, 63, 94, 0.55);
+        }
+        input[type="range"]::-moz-range-track { height: 6px; background: rgba(255, 255, 255, 0.1); border-radius: 3px; }
+        .stats-box {
+            background: rgba(28, 28, 30, 0.55);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            padding: 0;
+            border-radius: 14px;
+            margin-bottom: 18px;
+            font-size: 14px;
+            border: 1px solid var(--glass-border);
+            overflow: hidden;
+        }
+        .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; min-height: 44px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); color: var(--text-muted); }
+        .stat-row:last-child { border-bottom: none; }
+        .stat-row b { color: var(--text-main); font-weight: 600; }
+        .stat-muted { color: var(--text-muted); }
+        .stat-warn { color: #ff453a; }
+        .stat-ok { color: var(--success); }
+        .preview-container { border-radius: 12px; overflow: visible; border: 1px solid var(--glass-border); margin-bottom: 20px; background: #000; position: relative; max-height: none; }
+        #imagePreview { display: block; max-width: 100%; max-height: 380px; }
+        .preview-container .cropper-container { max-height: 380px; }
+        .preview-container .cropper-modal { background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+        .preview-container .cropper-view-box { outline: 1px solid var(--primary); outline-offset: -1px; }
+        .badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 20;
+            background: rgba(36, 36, 40, 0.75);
+            color: rgba(255, 255, 255, 0.95);
+            padding: 6px 12px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            pointer-events: none;
+            letter-spacing: 0.02em;
+        }
+        .btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            border: none;
+            padding: 14px 18px;
+            min-height: 44px;
+            border-radius: 12px;
+            font-weight: 600;
+            width: 100%;
+            cursor: pointer;
+            font-size: 16px;
+            margin-bottom: 12px;
+            background: linear-gradient(180deg, #f43f5e 0%, #fb7185 100%);
+            box-shadow: 0 4px 16px rgba(244, 63, 94, 0.35);
+            transition: transform 0.12s ease, filter 0.2s ease, box-shadow 0.2s ease;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        .btn:hover { filter: brightness(1.06); box-shadow: 0 6px 22px rgba(244, 63, 94, 0.45); }
+        .btn:active { transform: scale(0.97); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; filter: grayscale(0.2); box-shadow: none; }
+        .upload-status { color: var(--success); font-size: 14px; margin-top: 12px; line-height: 1.5; }
+        .upload-status a { color: var(--primary); word-break: break-all; }
+        .glass-inset {
+            background: rgba(28, 28, 30, 0.55);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 16px;
+            margin-top: 8px;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+            text-align: left;
+        }
+        .glass-inset a { color: var(--primary); word-break: break-all; font-size: 14px; }
+        @media (max-width: 600px) {
+            body { padding: 12px; }
+            .container { padding: 44px 20px 28px; width: 100%; max-width: 100%; margin: 0 auto; }
+            .menu-container { top: 16px; right: 16px; }
+            .input-group { flex-direction: column; gap: 10px; }
+            .stat-row { flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; }
+        }
+    </style>
+</head>
+<body data-page="thumbnail">
+    <div class="container">
+        <div class="menu-container" id="topMenu">
+            <div class="hamburger" id="menuBtn"><div></div><div></div><div></div></div>
+            <div class="dropdown-menu" id="dropdownMenu">
+                <a href="/" class="dropdown-link" data-nav="home">
+                    <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8h5z"/></svg>
+                    <span>Go to Home Page</span>
+                </a>
+                <a href="/podcast.html" class="dropdown-link" data-nav="podcast">
+                    <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V22h2v-4.28c3.28-.49 6-3.31 6-6.72h-1.7z"/></svg>
+                    <span>Podcast to Video</span>
+                </a>
+                <a href="/dubbing.html" class="dropdown-link" data-nav="dubbing">
+                    <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-4-8H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4zm2 14H4V6h16v12z"/></svg>
+                    <span>Video Audio Replacer</span>
+                </a>
+                <a href="/thumbnail.html" class="dropdown-link" data-nav="thumbnail">
+                    <svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+                    <span>Upload Thumbnail</span>
+                </a>
+            </div>
+        </div>
+
+        <h1>Thumbnail Maker</h1>
+        <div class="subtitle">Live Crop, Compress & Upload</div>
+
+        <div class="upload-area" id="dropZone" onclick="document.getElementById('imageInput').click()">
+            <svg class="upload-icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg>
+            <h3 id="fileLabel" class="file-label">Click or Drag Image Here</h3>
+            <input type="file" id="imageInput" accept="image/jpeg,image/png,image/webp" style="display:none;">
+        </div>
+
+        <div id="editorArea" style="display: none;">
+            <div class="input-group">
+                <div class="input-wrapper">
+                    <label>Aspect ratio</label>
+                    <div class="segment-control" id="aspectSegment" role="tablist" aria-label="Aspect ratio">
+                        <button type="button" class="seg-btn active" data-value="16:9" role="tab" aria-selected="true">16:9</button>
+                        <button type="button" class="seg-btn" data-value="1:1" role="tab" aria-selected="false">1:1</button>
+                        <button type="button" class="seg-btn" data-value="9:16" role="tab" aria-selected="false">9:16</button>
+                        <button type="button" class="seg-btn" data-value="original" role="tab" aria-selected="false">Original</button>
+                    </div>
+                    <select id="aspectRatio" class="sr-only">
+                        <option value="16:9" selected>16:9 (YouTube Standard)</option>
+                        <option value="1:1">1:1 (Square / Instagram)</option>
+                        <option value="9:16">9:16 (Shorts / Reels)</option>
+                        <option value="original">Keep Original</option>
+                    </select>
+                </div>
+                <div class="input-wrapper">
+                    <label>WebP Quality: <span id="qualityVal" class="quality-accent">80%</span></label>
+                    <input type="range" id="qualitySlider" min="10" max="100" value="80">
+                </div>
+            </div>
+
+            <div class="stats-box">
+                <div class="stat-row"><span>Original</span><span><b id="origSizeText" class="stat-warn">0 KB</b></span></div>
+                <div class="stat-row"><span>WebP estimate</span><span><b id="newSizeText" class="stat-ok">0 KB</b></span></div>
+            </div>
+
+            <div class="preview-container">
+                <span class="badge">Live Preview</span>
+                <img id="imagePreview" src="" alt="Thumbnail Preview">
+            </div>
+
+            <div class="input-group">
+                <div class="input-wrapper">
+                    <input type="text" id="seriesName" placeholder="Series Name (e.g., HorrorStory)" required>
+                </div>
+            </div>
+
+            <button id="uploadBtn" class="btn">UPLOAD</button>
+            <p id="uploadStatus" class="upload-status" style="display: none;"></p>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('menuBtn').onclick = (e) => { e.stopPropagation(); document.getElementById('dropdownMenu').classList.toggle('show'); };
+        document.onclick = () => document.getElementById('dropdownMenu').classList.remove('show');
+
+        const imageInput = document.getElementById('imageInput');
+        const editorArea = document.getElementById('editorArea');
+        const imagePreview = document.getElementById('imagePreview');
+        const aspectSelect = document.getElementById('aspectRatio');
+        const qualitySlider = document.getElementById('qualitySlider');
+
+        let cropper = null;
+        let estimateTimer = null;
+
+        function aspectRatioFromSelect() {
+            const v = aspectSelect.value;
+            if (v === '16:9') return 16 / 9;
+            if (v === '1:1') return 1;
+            if (v === '9:16') return 9 / 16;
+            return NaN;
+        }
+
+        function destroyCropper() {
+            clearTimeout(estimateTimer);
+            estimateTimer = null;
+            if (cropper) {
+                cropper.destroy();
+                cropper = null;
+            }
+        }
+
+        function updateWebpEstimate() {
+            if (!cropper) return;
+            const q = parseInt(qualitySlider.value, 10) / 100;
+            const canvas = cropper.getCroppedCanvas({ maxWidth: 1280, maxHeight: 1280 });
+            if (!canvas) return;
+            canvas.toBlob(function(blob) {
+                if (!blob) return;
+                document.getElementById('newSizeText').innerText = (blob.size / 1024).toFixed(1) + ' KB';
+            }, 'image/webp', q);
+        }
+
+        function scheduleWebpEstimate() {
+            clearTimeout(estimateTimer);
+            estimateTimer = setTimeout(updateWebpEstimate, 100);
+        }
+
+        function initCropper() {
+            destroyCropper();
+            cropper = new Cropper(imagePreview, {
+                aspectRatio: aspectRatioFromSelect(),
+                viewMode: 1,
+                dragMode: 'move',
+                autoCropArea: 1,
+                responsive: true,
+                restore: false,
+                guides: true,
+                center: true,
+                highlight: true,
+                cropBoxMovable: true,
+                cropBoxResizable: true,
+                toggleDragModeOnDblclick: false,
+                ready: function() {
+                    updateWebpEstimate();
+                },
+                crop: function() {
+                    scheduleWebpEstimate();
+                }
+            });
+        }
+
+        aspectSelect.addEventListener('change', function() {
+            if (!cropper) return;
+            cropper.setAspectRatio(aspectRatioFromSelect());
+            scheduleWebpEstimate();
+        });
+
+        qualitySlider.addEventListener('input', function(e) {
+            document.getElementById('qualityVal').innerText = e.target.value + '%';
+            scheduleWebpEstimate();
+        });
+
+        imageInput.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            document.getElementById('origSizeText').innerText = (file.size / 1024).toFixed(1) + ' KB';
+            document.getElementById('fileLabel').innerHTML = `<span style="color:var(--text-main);">${file.name}</span>`;
+
+            destroyCropper();
+            imagePreview.removeAttribute('src');
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                imagePreview.onload = function() {
+                    imagePreview.onload = null;
+                    editorArea.style.display = 'block';
+                    initCropper();
+                };
+                imagePreview.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        (function () {
+            var sel = document.getElementById('aspectRatio');
+            var wrap = document.getElementById('aspectSegment');
+            if (!wrap || !sel) return;
+            function syncSeg() {
+                wrap.querySelectorAll('.seg-btn').forEach(function (b) {
+                    var on = b.getAttribute('data-value') === sel.value;
+                    b.classList.toggle('active', on);
+                    b.setAttribute('aria-selected', on ? 'true' : 'false');
+                });
+            }
+            wrap.addEventListener('click', function (e) {
+                var btn = e.target.closest('.seg-btn');
+                if (!btn) return;
+                sel.value = btn.getAttribute('data-value');
+                sel.dispatchEvent(new Event('change', { bubbles: true }));
+                syncSeg();
+            });
+            sel.addEventListener('change', syncSeg);
+            syncSeg();
+        })();
+
+        document.getElementById('uploadBtn').addEventListener('click', async function() {
+            const series = document.getElementById('seriesName').value;
+
+            if (!series) return alert("Please enter the Series Name.");
+            if (!cropper) return alert("Please select an image first.");
+
+            const btn = document.getElementById('uploadBtn');
+            const statusText = document.getElementById('uploadStatus');
+            const q = parseInt(qualitySlider.value, 10) / 100;
+
+            const canvas = cropper.getCroppedCanvas({ maxWidth: 1280, maxHeight: 1280 });
+            if (!canvas) return alert("Could not read the cropped image.");
+
+            btn.disabled = true;
+            btn.innerText = "Uploading...";
+
+            try {
+                const blob = await new Promise(function(resolve, reject) {
+                    canvas.toBlob(function(b) {
+                        if (!b) reject(new Error("Could not encode WebP."));
+                        else resolve(b);
+                    }, 'image/webp', q);
+                });
+
+                const formData = new FormData();
+                formData.append('thumbnail', blob, `${series}.webp`);
+                formData.append('seriesName', series);
+
+                const res = await fetch('/upload-thumbnail', { method: 'POST', body: formData });
+
+                if (!res.ok) {
+                    const errorText = await res.text();
+                    alert(`Server error (${res.status}): ${errorText}`);
+                    btn.innerText = "Try Again";
+                    btn.disabled = false;
+                    return;
+                }
+
+                const data = await res.json();
+
+                if (data.success) {
+                    statusText.innerHTML = `Successfully uploaded.<div class="glass-inset"><a href="${data.url}" target="_blank">${data.url}</a></div>`;
+                    statusText.style.display = 'block';
+                    btn.innerText = "UPLOAD";
+                    btn.disabled = false;
+                } else {
+                    alert("Upload Failed: " + data.error);
+                    btn.innerText = "Try Again";
+                    btn.disabled = false;
+                }
+            } catch (err) {
+                alert("Error: " + err.message);
+                btn.innerText = "UPLOAD";
+                btn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

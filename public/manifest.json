@@ -1,0 +1,17 @@
+{
+  "name": "MOGO Studio",
+  "short_name": "MOGO Studio",
+  "description": "MOGO FM Video Converter & AI Captions",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#f43f5e",
+  "icons": [
+    {
+      "src": "/icon.webp",
+      "sizes": "512x512",
+      "type": "image/webp",
+      "purpose": "any maskable"
+    }
+  ]
+}
