@@ -8,6 +8,8 @@
     <meta name="theme-color" content="#f43f5e">
     <link rel="apple-touch-icon" href="/icon.webp">
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css" crossorigin="anonymous">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js" crossorigin="anonymous"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -230,8 +232,6 @@
             background: #000;
             border: 2px solid var(--primary);
             box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.2), 0 12px 32px rgba(0, 0, 0, 0.45);
-            touch-action: none;
-            user-select: none;
             height: auto;
         }
         .crop-preview-frame:not(.is-original)::before {
@@ -265,31 +265,88 @@
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
             cursor: default;
         }
-        .crop-preview-frame:not(.is-original) { cursor: grab; }
-        .crop-preview-frame.is-dragging { cursor: grabbing; }
-        .crop-preview-frame video {
-            display: block;
-            pointer-events: none;
+        /* Simple preview: 16:9 / 9:16 */
+        .crop-preview-frame:not(.is-original):not([data-ratio="1:1"]) .preview-simple {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            object-position: center;
+            background: #0a0a0a;
         }
-        .crop-preview-frame.is-original video {
+        .crop-preview-frame.is-original .preview-stack { display: none !important; }
+        .crop-preview-frame.is-original .preview-simple {
+            position: relative;
+            display: block;
             width: 100%;
             height: auto;
             max-height: min(52vh, 380px);
             object-fit: contain;
+            background: #000;
         }
-        .crop-preview-frame:not(.is-original) video {
+        .crop-preview-frame:not(.is-original):not([data-ratio="1:1"]) .preview-stack { display: none !important; }
+        .crop-preview-frame:not(.is-original)[data-ratio="1:1"] .preview-simple { display: none !important; }
+        .crop-preview-frame:not(.is-original)[data-ratio="1:1"] {
+            background: #111;
+        }
+        /* 1:1 stack: cover + blur fill (no black bars), foreground fit (no crop) */
+        .preview-stack {
+            display: none;
+            position: absolute;
+            inset: 0;
+            z-index: 0;
+            overflow: hidden;
+        }
+        .preview-stack.active {
+            display: block;
+        }
+        .preview-stack .preview-bg {
             position: absolute;
             inset: 0;
             width: 100%;
             height: 100%;
             object-fit: cover;
-            object-position: 50% 50%;
+            object-position: center;
+            transform: scale(1.2);
+            filter: blur(42px) brightness(0.75) saturate(1.1);
+            -webkit-filter: blur(42px) brightness(0.75) saturate(1.1);
+            pointer-events: none;
+        }
+        .preview-blur-layer {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            backdrop-filter: blur(32px) saturate(1.1);
+            -webkit-backdrop-filter: blur(32px) saturate(1.1);
+            pointer-events: none;
+        }
+        .preview-dim-layer {
+            position: absolute;
+            inset: 0;
+            z-index: 2;
+            background: rgba(0, 0, 0, 0.5);
+            pointer-events: none;
+        }
+        .preview-stack .preview-fg {
+            position: absolute;
+            inset: 0;
+            z-index: 3;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            object-position: center;
+            background: transparent;
+            pointer-events: none;
+        }
+        .crop-preview-frame.is-original::before {
+            display: none;
         }
         .crop-preview-badge {
             position: absolute;
             top: 10px;
             left: 10px;
-            z-index: 2;
+            z-index: 10;
             font-size: 11px;
             font-weight: 600;
             letter-spacing: 0.04em;
@@ -301,13 +358,36 @@
             backdrop-filter: blur(8px);
             -webkit-backdrop-filter: blur(8px);
         }
-        .crop-preview-hint {
+        .crop-editor-wrap {
+            display: none;
+            margin-bottom: 14px;
+            text-align: left;
+        }
+        .crop-editor-wrap.visible { display: block; }
+        .crop-editor-hint {
             font-size: 13px;
             color: var(--text-muted);
-            margin-top: 10px;
+            margin-bottom: 10px;
             line-height: 1.45;
-            text-align: center;
         }
+        .preview-container {
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--glass-border);
+            background: #000;
+            position: relative;
+        }
+        #cropFrameImage { display: block; max-width: 100%; }
+        .preview-container .cropper-container { max-height: min(52vh, 420px); }
+        .preview-container .cropper-modal { background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+        .preview-container .cropper-view-box { outline: 2px solid var(--primary); outline-offset: -1px; }
+        #cropDimensionsLabel {
+            text-align: center;
+            font-size: 14px;
+            margin-top: 10px;
+            color: var(--text-muted);
+        }
+        #cropDimensionsLabel b { color: var(--text-main); }
         .custom-compress-panel {
             display: none;
             margin-bottom: 14px;
@@ -627,20 +707,41 @@
                     </select>
                 </div>
             </div>
-            
+
             <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
                 <svg class="upload-icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-4-8H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4zm2 14H4V6h16v12z"/></svg>
                 <h3 id="fileLabel" class="file-label">Click to Select Video</h3>
                 <input type="file" id="fileInput" accept="video/*" style="display:none;">
             </div>
 
+            <div class="ios-toggle-field" style="margin-bottom: 14px;">
+                <span class="ios-toggle-label">Custom crop</span>
+                <label class="ios-switch" for="enableCrop">
+                    <input type="checkbox" id="enableCrop">
+                    <span class="ios-switch-visual" aria-hidden="true"><span class="ios-switch-thumb"></span></span>
+                </label>
+            </div>
+
+            <div id="cropEditorWrap" class="crop-editor-wrap">
+                <p class="crop-editor-hint" id="cropEditorHint">Drag corners to crop. Double-click to move video inside the box.</p>
+                <div class="preview-container">
+                    <img id="cropFrameImage" alt="Video frame for cropping">
+                </div>
+                <p id="cropDimensionsLabel"></p>
+            </div>
+
             <div id="cropPreviewWrap" class="crop-preview-wrap">
-                <div class="crop-preview-label">Live crop preview</div>
+                <div class="crop-preview-label" id="cropPreviewLabel">Preview</div>
                 <div class="crop-preview-frame is-original" id="cropPreviewFrame">
                     <span class="crop-preview-badge" id="cropPreviewBadge">Original</span>
-                    <video id="sourcePreview" muted playsinline loop></video>
+                    <div class="preview-stack" id="previewStack">
+                        <video id="sourcePreviewBg" class="preview-bg" muted playsinline loop aria-hidden="true"></video>
+                        <div class="preview-blur-layer" aria-hidden="true"></div>
+                        <div class="preview-dim-layer" aria-hidden="true"></div>
+                        <video id="sourcePreviewFg" class="preview-fg" muted playsinline loop></video>
+                    </div>
+                    <video id="sourcePreview" class="preview-simple" muted playsinline loop></video>
                 </div>
-                <p class="crop-preview-hint" id="cropPreviewHint">Select a ratio above, then drag the video to position the crop.</p>
             </div>
 
             <div id="estimateText">Estimated Size after Compression: ~0 MB</div>
@@ -712,25 +813,148 @@
         };
 
         let previewObjectUrl = '';
-        let cropFocusX = 0.5;
-        let cropFocusY = 0.5;
-        let isCropDragging = false;
-        let cropDragStart = null;
+        let videoCropper = null;
+        let videoNaturalW = 0;
+        let videoNaturalH = 0;
+
+        const enableCrop = document.getElementById('enableCrop');
+        const cropEditorWrap = document.getElementById('cropEditorWrap');
+        const cropFrameImage = document.getElementById('cropFrameImage');
+        const cropEditorHint = document.getElementById('cropEditorHint');
+        const cropDimensionsLabel = document.getElementById('cropDimensionsLabel');
 
         const aspectSelect = document.getElementById('aspectRatio');
         const aspectSegment = document.getElementById('aspectSegment');
         const cropPreviewWrap = document.getElementById('cropPreviewWrap');
         const cropPreviewFrame = document.getElementById('cropPreviewFrame');
         const cropPreviewBadge = document.getElementById('cropPreviewBadge');
-        const cropPreviewHint = document.getElementById('cropPreviewHint');
+        const cropPreviewLabel = document.getElementById('cropPreviewLabel');
+        const previewStack = document.getElementById('previewStack');
         const sourcePreview = document.getElementById('sourcePreview');
+        const sourcePreviewBg = document.getElementById('sourcePreviewBg');
+        const sourcePreviewFg = document.getElementById('sourcePreviewFg');
+        let previewSyncBound = false;
 
-        function aspectRatioCss(value) {
-            if (value === '16:9') return '16 / 9';
-            if (value === '9:16') return '9 / 16';
-            if (value === '1:1') return '1 / 1';
-            return '';
+        function bindPreviewVideoSync() {
+            if (previewSyncBound) return;
+            previewSyncBound = true;
+            const leader = sourcePreviewBg;
+            const follower = sourcePreviewFg;
+            leader.addEventListener('timeupdate', function() {
+                if (Math.abs(follower.currentTime - leader.currentTime) > 0.15) {
+                    follower.currentTime = leader.currentTime;
+                }
+            });
+            leader.addEventListener('play', function() { follower.play().catch(function() {}); });
+            leader.addEventListener('pause', function() { follower.pause(); });
+            leader.addEventListener('seeking', function() { follower.currentTime = leader.currentTime; });
         }
+
+        function playPreviewVideos() {
+            if (aspectSelect.value === '1:1' && previewObjectUrl) {
+                sourcePreviewBg.play().catch(function() {});
+                sourcePreviewFg.currentTime = sourcePreviewBg.currentTime;
+                sourcePreviewFg.play().catch(function() {});
+            } else {
+                sourcePreview.play().catch(function() {});
+            }
+        }
+
+        function applyPreviewSources(url) {
+            sourcePreview.src = url;
+            sourcePreviewBg.src = url;
+            sourcePreviewFg.src = url;
+        }
+
+        function setPreviewStackActive(active) {
+            previewStack.classList.toggle('active', active);
+            previewStack.setAttribute('aria-hidden', active ? 'false' : 'true');
+        }
+
+        function aspectRatioFromMode() {
+            const v = aspectSelect.value;
+            if (v === '16:9') return 16 / 9;
+            if (v === '9:16') return 9 / 16;
+            if (v === '1:1') return 1;
+            return NaN;
+        }
+
+        function destroyVideoCropper() {
+            if (videoCropper) {
+                videoCropper.destroy();
+                videoCropper = null;
+            }
+        }
+
+        function updateCropDimensionsLabel() {
+            if (!videoCropper) {
+                cropDimensionsLabel.textContent = '';
+                return;
+            }
+            const d = videoCropper.getData(true);
+            cropDimensionsLabel.innerHTML = `Crop area: <b>${Math.round(d.width)}×${Math.round(d.height)}</b> px at (${Math.round(d.x)}, ${Math.round(d.y)})`;
+        }
+
+        function initVideoCropper() {
+            destroyVideoCropper();
+            if (!cropFrameImage.src || typeof Cropper === 'undefined') return;
+
+            const ratio = aspectRatioFromMode();
+            const locked = Number.isFinite(ratio);
+            cropEditorHint.textContent = locked
+                ? `Crop locked to ${aspectSelect.value}. Drag corners or double-click to reposition.`
+                : 'Free crop — drag corners to any size.';
+
+            videoCropper = new Cropper(cropFrameImage, {
+                aspectRatio: ratio,
+                viewMode: 1,
+                dragMode: 'move',
+                autoCropArea: 0.92,
+                responsive: true,
+                restore: false,
+                guides: true,
+                center: true,
+                highlight: true,
+                cropBoxMovable: true,
+                cropBoxResizable: true,
+                toggleDragModeOnDblclick: true,
+                ready: updateCropDimensionsLabel,
+                crop: updateCropDimensionsLabel,
+            });
+        }
+
+        function captureVideoFrameToCropper() {
+            if (!videoNaturalW || !sourcePreview.videoWidth) return;
+            const canvas = document.createElement('canvas');
+            canvas.width = videoNaturalW;
+            canvas.height = videoNaturalH;
+            canvas.getContext('2d').drawImage(sourcePreview, 0, 0, videoNaturalW, videoNaturalH);
+            cropFrameImage.src = canvas.toDataURL('image/jpeg', 0.92);
+            cropFrameImage.onload = function() {
+                cropFrameImage.onload = null;
+                initVideoCropper();
+            };
+        }
+
+        function syncCropEditorVisibility() {
+            const showCrop = enableCrop.checked && !!previewObjectUrl;
+            cropEditorWrap.classList.toggle('visible', showCrop);
+            cropPreviewWrap.classList.toggle('visible', !showCrop && !!previewObjectUrl);
+            if (showCrop && cropFrameImage.src) {
+                initVideoCropper();
+            } else if (!showCrop) {
+                destroyVideoCropper();
+                cropDimensionsLabel.textContent = '';
+            }
+        }
+
+        enableCrop.addEventListener('change', function() {
+            if (enableCrop.checked && previewObjectUrl) {
+                if (!cropFrameImage.src) captureVideoFrameToCropper();
+                else initVideoCropper();
+            }
+            syncCropEditorVisibility();
+        });
 
         function syncAspectSegmentButtons() {
             aspectSegment.querySelectorAll('.seg-btn').forEach(function(btn) {
@@ -740,57 +964,72 @@
             });
         }
 
-        function applyCropFocusToPreview() {
-            sourcePreview.style.objectPosition = `${(cropFocusX * 100).toFixed(1)}% ${(cropFocusY * 100).toFixed(1)}%`;
-        }
-
-        function updateCropPreview() {
+        function updateRatioPreview() {
             const ratio = aspectSelect.value;
-            const isOriginal = ratio === 'original';
-
-            cropPreviewBadge.textContent = isOriginal ? 'Original' : ratio;
-            cropPreviewFrame.classList.toggle('is-original', isOriginal);
-
-            if (isOriginal) {
+            if (ratio === 'original') {
+                cropPreviewFrame.classList.add('is-original');
                 cropPreviewFrame.removeAttribute('data-ratio');
-                cropPreviewHint.textContent = 'Full video — no crop. Pick 16:9, 9:16, or 1:1 to frame before upload.';
-            } else {
+                setPreviewStackActive(false);
+                cropPreviewBadge.textContent = 'Original';
+                cropPreviewLabel.textContent = 'Preview';
+            } else if (ratio === '1:1') {
+                cropPreviewFrame.classList.remove('is-original');
                 cropPreviewFrame.setAttribute('data-ratio', ratio);
-                cropPreviewHint.textContent = 'Drag the video to move the crop. Pink border = final output frame.';
-            }
-
-            if (!isOriginal) {
-                applyCropFocusToPreview();
+                setPreviewStackActive(!!previewObjectUrl);
+                cropPreviewBadge.textContent = '1:1';
+                cropPreviewLabel.textContent = 'Preview — blur fill, video fit (no crop)';
             } else {
-                cropFocusX = 0.5;
-                cropFocusY = 0.5;
-                sourcePreview.style.objectPosition = '';
+                cropPreviewFrame.classList.remove('is-original');
+                cropPreviewFrame.setAttribute('data-ratio', ratio);
+                setPreviewStackActive(false);
+                cropPreviewBadge.textContent = ratio;
+                cropPreviewLabel.textContent = 'Preview (fit contain)';
             }
-        }
-
-        function showSourcePreview(file) {
             if (previewObjectUrl) {
-                URL.revokeObjectURL(previewObjectUrl);
-                previewObjectUrl = '';
+                playPreviewVideos();
+                if (enableCrop.checked) {
+                    captureVideoFrameToCropper();
+                }
             }
-            previewObjectUrl = URL.createObjectURL(file);
-            sourcePreview.src = previewObjectUrl;
-            cropPreviewWrap.classList.add('visible');
-            updateCropPreview();
-            sourcePreview.play().catch(function() {});
+            syncCropEditorVisibility();
         }
 
         document.getElementById('fileInput').addEventListener('change', (e) => {
             if (e.target.files.length > 0) {
                 const file = e.target.files[0];
                 document.getElementById('fileLabel').innerHTML = `<span style="color:var(--text-main);">${file.name} <br><span style="font-size:13px; color:var(--text-muted);">(${(file.size / (1024 * 1024)).toFixed(1)} MB)</span></span>`;
-                showSourcePreview(file);
+                if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
+                previewObjectUrl = URL.createObjectURL(file);
+                applyPreviewSources(previewObjectUrl);
+                bindPreviewVideoSync();
                 sourcePreview.onloadedmetadata = function() {
                     selectedVideoDuration = sourcePreview.duration;
-                    updateEstimate();
+                    videoNaturalW = sourcePreview.videoWidth;
+                    videoNaturalH = sourcePreview.videoHeight;
+                    sourcePreview.currentTime = Math.min(1, sourcePreview.duration * 0.1);
                 };
+                sourcePreview.onseeked = function() {
+                    sourcePreview.onseeked = null;
+                    updateEstimate();
+                    updateRatioPreview();
+                    if (enableCrop.checked) captureVideoFrameToCropper();
+                    syncCropEditorVisibility();
+                };
+                sourcePreviewBg.onloadedmetadata = playPreviewVideos;
+                playPreviewVideos();
             }
         });
+
+        aspectSegment.addEventListener('click', function(e) {
+            const btn = e.target.closest('.seg-btn');
+            if (!btn) return;
+            aspectSelect.value = btn.getAttribute('data-value');
+            syncAspectSegmentButtons();
+            updateRatioPreview();
+        });
+
+        syncAspectSegmentButtons();
+        updateRatioPreview();
 
         const qualitySelect = document.getElementById('quality');
         const customCompressPanel = document.getElementById('customCompressPanel');
@@ -824,69 +1063,21 @@
         customResolutionSelect.addEventListener('change', updateEstimate);
         updateCustomBitrateLabel();
 
-        aspectSegment.addEventListener('click', function(e) {
-            const btn = e.target.closest('.seg-btn');
-            if (!btn) return;
-            aspectSelect.value = btn.getAttribute('data-value');
-            syncAspectSegmentButtons();
-            if (aspectSelect.value === 'original') {
-                cropFocusX = 0.5;
-                cropFocusY = 0.5;
-            }
-            updateCropPreview();
-        });
-
-        function onCropPointerDown(clientX, clientY) {
-            if (aspectSelect.value === 'original' || !sourcePreview.src) return;
-            isCropDragging = true;
-            cropDragStart = { x: clientX, y: clientY, focusX: cropFocusX, focusY: cropFocusY };
-            cropPreviewFrame.classList.add('is-dragging');
-        }
-
-        function onCropPointerMove(clientX, clientY) {
-            if (!isCropDragging || !cropDragStart) return;
-            const rect = cropPreviewFrame.getBoundingClientRect();
-            const dx = (clientX - cropDragStart.x) / Math.max(rect.width, 1);
-            const dy = (clientY - cropDragStart.y) / Math.max(rect.height, 1);
-            cropFocusX = Math.max(0, Math.min(1, cropDragStart.focusX - dx));
-            cropFocusY = Math.max(0, Math.min(1, cropDragStart.focusY - dy));
-            applyCropFocusToPreview();
-        }
-
-        function onCropPointerUp() {
-            isCropDragging = false;
-            cropDragStart = null;
-            cropPreviewFrame.classList.remove('is-dragging');
-        }
-
-        cropPreviewFrame.addEventListener('mousedown', function(e) {
-            e.preventDefault();
-            onCropPointerDown(e.clientX, e.clientY);
-        });
-        window.addEventListener('mousemove', function(e) { onCropPointerMove(e.clientX, e.clientY); });
-        window.addEventListener('mouseup', onCropPointerUp);
-
-        cropPreviewFrame.addEventListener('touchstart', function(e) {
-            if (!e.touches[0]) return;
-            onCropPointerDown(e.touches[0].clientX, e.touches[0].clientY);
-        }, { passive: true });
-        cropPreviewFrame.addEventListener('touchmove', function(e) {
-            if (!e.touches[0]) return;
-            onCropPointerMove(e.touches[0].clientX, e.touches[0].clientY);
-        }, { passive: true });
-        cropPreviewFrame.addEventListener('touchend', onCropPointerUp);
-
-        syncAspectSegmentButtons();
-        updateCropPreview();
-
         function updateEstimate() {
             if (!selectedVideoDuration) return;
             const estDiv = document.getElementById('estimateText');
             estDiv.style.display = 'block';
             const mb = ((getEstimateBitrateKbps() * selectedVideoDuration) / 8192).toFixed(2);
-            const extra = qualitySelect.value === 'custom'
-                ? ` · ${customResolutionSelect.value} · ${customBitrateInput.value} kbps`
-                : '';
+            let extra = '';
+            if (enableCrop.checked && videoCropper) {
+                const d = videoCropper.getData(true);
+                extra += ` · crop ${Math.round(d.width)}×${Math.round(d.height)}`;
+            } else if (aspectSelect.value !== 'original') {
+                extra += aspectSelect.value === '1:1' ? ' · 1:1 blur fill' : ` · ${aspectSelect.value}`;
+            }
+            if (qualitySelect.value === 'custom') {
+                extra += ` · ${customBitrateInput.value} kbps`;
+            }
             estDiv.innerHTML = `Estimated Compressed Size: <b>~${mb} MB</b><span style="color:var(--text-muted);font-size:13px;">${extra}</span>`;
         }
 
@@ -894,15 +1085,16 @@
             e.preventDefault();
             const fileInput = document.getElementById('fileInput');
             if(!fileInput.files.length) return alert("Please select a video!");
+            if (enableCrop.checked && !videoCropper) {
+                return alert("Please wait for the crop editor to load, or turn off Custom crop.");
+            }
 
-            document.getElementById('topMenu').style.display = 'none'; // Hide 3-line menu
+            document.getElementById('topMenu').style.display = 'none';
 
             localStorage.setItem('mogo_custom_timer', document.getElementById('timerInput').value);
             localStorage.setItem('mogo_series_name', document.getElementById('seriesName').value);
             localStorage.setItem('mogo_episode_num', document.getElementById('episodeNum').value);
             localStorage.setItem('mogo_aspect_ratio', aspectSelect.value);
-            localStorage.setItem('mogo_crop_focus_x', String(cropFocusX));
-            localStorage.setItem('mogo_crop_focus_y', String(cropFocusY));
 
             document.getElementById('uploadForm').style.display = 'none';
             document.getElementById('loadingArea').style.display = 'block';
@@ -924,9 +1116,12 @@
             fd.append('translate', document.getElementById('translateEng').checked);
             fd.append('aiModel', document.getElementById('aiModel').value);
             fd.append('aspectRatio', aspectSelect.value);
-            if (aspectSelect.value !== 'original') {
-                fd.append('cropFocusX', String(cropFocusX));
-                fd.append('cropFocusY', String(cropFocusY));
+            if (enableCrop.checked && videoCropper) {
+                const cropData = videoCropper.getData(true);
+                fd.append('cropX', String(Math.max(0, Math.round(cropData.x))));
+                fd.append('cropY', String(Math.max(0, Math.round(cropData.y))));
+                fd.append('cropW', String(Math.max(2, Math.round(cropData.width))));
+                fd.append('cropH', String(Math.max(2, Math.round(cropData.height))));
             }
 
             const xhr = new XMLHttpRequest();
@@ -993,16 +1188,6 @@
             const video = document.getElementById('videoPlayer');
             while (video.firstChild) video.removeChild(video.firstChild);
 
-            const savedRatio = localStorage.getItem('mogo_aspect_ratio') || 'original';
-            const ratioCss = aspectRatioCss(savedRatio);
-            if (ratioCss) {
-                video.style.aspectRatio = ratioCss;
-                video.classList.add('ratio-crop');
-            } else {
-                video.style.aspectRatio = '';
-                video.classList.remove('ratio-crop');
-            }
-
             if (Hls.isSupported()) {
                 const hls = new Hls(); hls.loadSource(job.previewUrl); hls.attachMedia(video);
                 hls.on(Hls.Events.MANIFEST_PARSED, () => injectCaptions(job, video));
@@ -1043,7 +1228,7 @@
             document.getElementById('loadingArea').style.display = 'none';
             document.getElementById('finalArea').style.display = 'block';
             document.getElementById('finalLink').href = data.url; document.getElementById('finalLink').innerText = data.url;
-            localStorage.removeItem('active_mogo_job'); localStorage.removeItem('mogo_custom_timer'); localStorage.removeItem('mogo_aspect_ratio'); localStorage.removeItem('mogo_crop_focus_x'); localStorage.removeItem('mogo_crop_focus_y');
+            localStorage.removeItem('active_mogo_job'); localStorage.removeItem('mogo_custom_timer'); localStorage.removeItem('mogo_aspect_ratio');
         }
 
         document.getElementById('uploadR2Btn').addEventListener('click', uploadToR2);
@@ -1056,8 +1241,6 @@
             localStorage.removeItem('active_mogo_job');
             localStorage.removeItem('mogo_custom_timer');
             localStorage.removeItem('mogo_aspect_ratio');
-            localStorage.removeItem('mogo_crop_focus_x');
-            localStorage.removeItem('mogo_crop_focus_y');
             window.location.reload();
         }
     </script>

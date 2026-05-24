@@ -38,8 +38,9 @@ const s3 = new S3Client({
 });
 
 const jobs = {};
+const { buildStrict1x1BoxBlurFilter } = require('./lib/convert-to-1x1-square');
 
-function resolveOutputHeight(quality, customResolution) {
+function resolveOutputHeightFromQuality(quality, customResolution) {
     const res = quality === 'custom' ? (customResolution || '720p') : quality;
     if (res === '1080p') return 1080;
     if (res === '480p') return 480;
@@ -57,19 +58,87 @@ function resolveVideoBitrate(quality, videoBitrateKbps) {
     return '2500k';
 }
 
-function buildVideoScaleFilter(outputHeight, aspectRatio, cropFocusX, cropFocusY) {
-    const height = outputHeight;
-    if (!aspectRatio || aspectRatio === 'original') {
-        return `scale=-2:${height}`;
+function evenDimension(value) {
+    const n = Math.max(2, Math.round(value));
+    return n % 2 === 0 ? n : n - 1;
+}
+
+function parseCustomCrop(body) {
+    const cropW = parseInt(body.cropW, 10);
+    const cropH = parseInt(body.cropH, 10);
+    const cropX = parseInt(body.cropX, 10);
+    const cropY = parseInt(body.cropY, 10);
+    if (!Number.isFinite(cropW) || !Number.isFinite(cropH) || cropW < 2 || cropH < 2) {
+        return null;
     }
-    const ratioMap = { '16:9': [16, 9], '9:16': [9, 16], '1:1': [1, 1], '4:3': [4, 3] };
+    return {
+        x: Number.isFinite(cropX) ? cropX : 0,
+        y: Number.isFinite(cropY) ? cropY : 0,
+        width: cropW,
+        height: cropH,
+    };
+}
+
+function buildCropFilterLine(customCrop) {
+    if (!customCrop) return null;
+    const w = evenDimension(customCrop.width);
+    const h = evenDimension(customCrop.height);
+    const x = evenDimension(customCrop.x);
+    const y = evenDimension(customCrop.y);
+    return `[0:v]crop=${w}:${h}:${x}:${y}[vcrop]`;
+}
+
+function buildBlurFillFilter(outputW, outputH, boxBlur, inputLabel) {
+    const src = inputLabel.startsWith('[') ? inputLabel : `[${inputLabel}]`;
+    return [
+        `${src}split=2[bg][fg]`,
+        `[bg]scale=${outputW}:${outputH}:force_original_aspect_ratio=increase,crop=${outputW}:${outputH},boxblur=${boxBlur}[bg_blur]`,
+        `[fg]scale=${outputW}:${outputH}:force_original_aspect_ratio=decrease[fg_fit]`,
+        '[bg_blur][fg_fit]overlay=(W-w)/2:(H-h)/2[vout]',
+    ];
+}
+
+/** Returns simple -vf or complex filter spec for HLS encode. */
+function buildVideoFilterSpec(outputHeight, aspectRatio, customCrop) {
+    const cropLine = buildCropFilterLine(customCrop);
+    const src = cropLine ? 'vcrop' : '0:v';
+
+    if (!aspectRatio || aspectRatio === 'original') {
+        if (cropLine) {
+            return {
+                complexFilter: [cropLine, `[vcrop]scale=-2:${outputHeight}[vout]`],
+                mapVideo: '[vout]',
+            };
+        }
+        return { vf: `scale=-2:${outputHeight}` };
+    }
+
+    if (aspectRatio === '1:1') {
+        const s = evenDimension(outputHeight);
+        const filters = cropLine ? [cropLine] : [];
+        filters.push(...buildStrict1x1BoxBlurFilter(s, '40:5', src));
+        return { complexFilter: filters, mapVideo: '[vout]' };
+    }
+
+    const ratioMap = { '16:9': [16, 9], '9:16': [9, 16] };
     const pair = ratioMap[aspectRatio];
-    if (!pair) return `scale=-2:${height}`;
+    if (!pair) return { vf: `scale=-2:${outputHeight}` };
+
     const [rw, rh] = pair;
-    const width = Math.round((height * rw / rh) / 2) * 2;
-    const fx = Number.isFinite(cropFocusX) ? Math.max(0, Math.min(1, cropFocusX)) : 0.5;
-    const fy = Number.isFinite(cropFocusY) ? Math.max(0, Math.min(1, cropFocusY)) : 0.5;
-    return `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}:(iw-${width})*${fx}:(ih-${height})*${fy}`;
+    const h = outputHeight;
+    const w = evenDimension((h * rw) / rh);
+    const filters = cropLine ? [cropLine] : [];
+    filters.push(...buildBlurFillFilter(w, h, '32:5', src));
+
+    return { complexFilter: filters, mapVideo: '[vout]' };
+}
+
+function applyVideoFilterToFfmpegCommand(cmd, filterSpec) {
+    if (filterSpec.complexFilter) {
+        cmd.complexFilter(filterSpec.complexFilter);
+        return;
+    }
+    cmd.videoFilters(filterSpec.vf);
 }
 
 app.post('/process', upload.single('video'), (req, res) => {
@@ -86,15 +155,13 @@ app.post('/process', upload.single('video'), (req, res) => {
     
     const quality = req.body.quality || '720p';
     const aspectRatio = req.body.aspectRatio || 'original';
-    const cropFocusX = parseFloat(req.body.cropFocusX);
-    const cropFocusY = parseFloat(req.body.cropFocusY);
     const audioLanguage = req.body.language || 'Hindi'; 
     const aiModel = req.body.aiModel || 'small';
     const translateToEng = req.body.translate === 'true';
 
     const customResolution = req.body.customResolution || '720p';
-    const outputHeight = resolveOutputHeight(quality, customResolution);
-    const videoFilter = buildVideoScaleFilter(outputHeight, aspectRatio, cropFocusX, cropFocusY);
+    const outputHeight = resolveOutputHeightFromQuality(quality, customResolution);
+    const filterSpec = buildVideoFilterSpec(outputHeight, aspectRatio, parseCustomCrop(req.body));
     const bitrate = resolveVideoBitrate(quality, req.body.videoBitrate);
 
     jobs[folderId] = { 
@@ -105,12 +172,19 @@ app.post('/process', upload.single('video'), (req, res) => {
 
     res.json({ status: 'Started', jobId: folderId });
 
-    ffmpeg(videoPath)
-        .addOptions([
-            '-profile:v baseline', '-level 3.0', '-start_number 0',
-            '-hls_time 10', '-hls_list_size 0', '-f hls',
-            `-vf ${videoFilter}`, `-b:v ${bitrate}`, '-c:a aac', '-b:a 128k'
-        ])
+    const hlsOptions = [
+        '-profile:v baseline', '-level 3.0', '-start_number 0',
+        '-hls_time 10', '-hls_list_size 0', '-f hls',
+        `-b:v ${bitrate}`, '-c:a aac', '-b:a 128k',
+    ];
+    if (filterSpec.complexFilter) {
+        hlsOptions.push('-map', filterSpec.mapVideo, '-map', '0:a?');
+    }
+
+    const compressCmd = ffmpeg(videoPath);
+    applyVideoFilterToFfmpegCommand(compressCmd, filterSpec);
+    compressCmd
+        .addOptions(hlsOptions)
         .on('codecData', (data) => {
             if (data.duration) {
                 const parts = data.duration.split(':');
