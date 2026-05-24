@@ -39,8 +39,26 @@ const s3 = new S3Client({
 
 const jobs = {};
 
-function buildVideoScaleFilter(quality, aspectRatio, cropFocusX, cropFocusY) {
-    const height = quality === '1080p' ? 1080 : quality === '480p' ? 480 : 720;
+function resolveOutputHeight(quality, customResolution) {
+    const res = quality === 'custom' ? (customResolution || '720p') : quality;
+    if (res === '1080p') return 1080;
+    if (res === '480p') return 480;
+    return 720;
+}
+
+function resolveVideoBitrate(quality, videoBitrateKbps) {
+    if (quality === '1080p') return '4500k';
+    if (quality === '480p') return '1000k';
+    if (quality === '720p') return '2500k';
+    if (quality === 'custom') {
+        const kbps = Math.max(400, Math.min(8000, parseInt(videoBitrateKbps, 10) || 2000));
+        return `${kbps}k`;
+    }
+    return '2500k';
+}
+
+function buildVideoScaleFilter(outputHeight, aspectRatio, cropFocusX, cropFocusY) {
+    const height = outputHeight;
     if (!aspectRatio || aspectRatio === 'original') {
         return `scale=-2:${height}`;
     }
@@ -74,10 +92,10 @@ app.post('/process', upload.single('video'), (req, res) => {
     const aiModel = req.body.aiModel || 'small';
     const translateToEng = req.body.translate === 'true';
 
-    const videoFilter = buildVideoScaleFilter(quality, aspectRatio, cropFocusX, cropFocusY);
-    let bitrate = '2500k';
-    if (quality === '1080p') bitrate = '4500k';
-    else if (quality === '480p') bitrate = '1000k';
+    const customResolution = req.body.customResolution || '720p';
+    const outputHeight = resolveOutputHeight(quality, customResolution);
+    const videoFilter = buildVideoScaleFilter(outputHeight, aspectRatio, cropFocusX, cropFocusY);
+    const bitrate = resolveVideoBitrate(quality, req.body.videoBitrate);
 
     jobs[folderId] = { 
         status: 'compressing', progress: 0, whisperProgress: 0, duration: 0,

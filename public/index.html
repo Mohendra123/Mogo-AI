@@ -308,6 +308,59 @@
             line-height: 1.45;
             text-align: center;
         }
+        .custom-compress-panel {
+            display: none;
+            margin-bottom: 14px;
+            padding: 16px;
+            border-radius: 14px;
+            background: rgba(28, 28, 30, 0.55);
+            border: 1px solid var(--glass-border);
+            text-align: left;
+        }
+        .custom-compress-panel.visible { display: block; }
+        .quality-accent { color: var(--primary); font-weight: 600; }
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            background: transparent;
+            padding: 14px 0;
+            min-height: 44px;
+            border: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 22px;
+            width: 22px;
+            border-radius: 50%;
+            background: linear-gradient(180deg, #f43f5e, #fb7185);
+            cursor: pointer;
+            margin-top: -8px;
+            box-shadow: 0 0 12px rgba(244, 63, 94, 0.55);
+            border: 2px solid rgba(255, 255, 255, 0.35);
+        }
+        input[type="range"]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 6px;
+            cursor: pointer;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+        input[type="range"]::-moz-range-thumb {
+            height: 22px;
+            width: 22px;
+            border-radius: 50%;
+            background: linear-gradient(180deg, #f43f5e, #fb7185);
+            cursor: pointer;
+            border: 2px solid rgba(255, 255, 255, 0.35);
+            box-shadow: 0 0 12px rgba(244, 63, 94, 0.55);
+        }
+        input[type="range"]::-moz-range-track {
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
         .file-label { margin: 0; font-size: 15px; font-weight: 500; color: var(--text-muted); }
         .btn, .btn-green, .btn-red {
             display: flex;
@@ -511,8 +564,27 @@
                     <option value="1080p">1080p (High Quality)</option>
                     <option value="720p" selected>720p (Balanced)</option>
                     <option value="480p">480p (Data Saver)</option>
+                    <option value="custom">Custom (Your Settings)</option>
                 </select>
                 <input type="number" id="timerInput" placeholder="Auto-Upload (sec)" value="30" required>
+            </div>
+
+            <div id="customCompressPanel" class="custom-compress-panel">
+                <div class="input-wrapper">
+                    <label for="customBitrate">Compression strength — bitrate: <span id="customBitrateVal" class="quality-accent">2000 kbps</span></label>
+                    <input type="range" id="customBitrate" min="400" max="6000" step="100" value="2000">
+                </div>
+                <div class="input-group" style="margin-top: 12px; margin-bottom: 0;">
+                    <div class="input-wrapper">
+                        <label for="customResolution">Output resolution</label>
+                        <select id="customResolution">
+                            <option value="480p">480p</option>
+                            <option value="720p" selected>720p</option>
+                            <option value="1080p">1080p</option>
+                        </select>
+                    </div>
+                </div>
+                <p class="muted-hint" style="margin-top: 12px; margin-bottom: 0; text-align: left;">Lower bitrate = smaller file. Higher = better quality.</p>
             </div>
             
             <div class="input-group">
@@ -720,7 +792,37 @@
             }
         });
 
-        document.getElementById('quality').addEventListener('change', updateEstimate);
+        const qualitySelect = document.getElementById('quality');
+        const customCompressPanel = document.getElementById('customCompressPanel');
+        const customBitrateInput = document.getElementById('customBitrate');
+        const customBitrateVal = document.getElementById('customBitrateVal');
+        const customResolutionSelect = document.getElementById('customResolution');
+
+        function toggleCustomCompressPanel() {
+            customCompressPanel.classList.toggle('visible', qualitySelect.value === 'custom');
+            updateEstimate();
+        }
+
+        function getEstimateBitrateKbps() {
+            const q = qualitySelect.value;
+            if (q === '1080p') return 4628;
+            if (q === '480p') return 1128;
+            if (q === '720p') return 2628;
+            if (q === 'custom') return parseInt(customBitrateInput.value, 10) + 128;
+            return 2628;
+        }
+
+        function updateCustomBitrateLabel() {
+            customBitrateVal.textContent = `${customBitrateInput.value} kbps`;
+        }
+
+        qualitySelect.addEventListener('change', toggleCustomCompressPanel);
+        customBitrateInput.addEventListener('input', function() {
+            updateCustomBitrateLabel();
+            updateEstimate();
+        });
+        customResolutionSelect.addEventListener('change', updateEstimate);
+        updateCustomBitrateLabel();
 
         aspectSegment.addEventListener('click', function(e) {
             const btn = e.target.closest('.seg-btn');
@@ -779,12 +881,13 @@
 
         function updateEstimate() {
             if (!selectedVideoDuration) return;
-            let bitrateKbps = 2628; 
-            if (document.getElementById('quality').value === '1080p') bitrateKbps = 4628;
-            if (document.getElementById('quality').value === '480p') bitrateKbps = 1128;
             const estDiv = document.getElementById('estimateText');
             estDiv.style.display = 'block';
-            estDiv.innerHTML = `Estimated Compressed Size: <b>~${((bitrateKbps * selectedVideoDuration) / 8192).toFixed(2)} MB</b>`;
+            const mb = ((getEstimateBitrateKbps() * selectedVideoDuration) / 8192).toFixed(2);
+            const extra = qualitySelect.value === 'custom'
+                ? ` · ${customResolutionSelect.value} · ${customBitrateInput.value} kbps`
+                : '';
+            estDiv.innerHTML = `Estimated Compressed Size: <b>~${mb} MB</b><span style="color:var(--text-muted);font-size:13px;">${extra}</span>`;
         }
 
         document.getElementById('uploadForm').addEventListener('submit', function(e) {
@@ -812,7 +915,11 @@
 
             const fd = new FormData();
             fd.append('video', fileInput.files[0]);
-            fd.append('quality', document.getElementById('quality').value);
+            fd.append('quality', qualitySelect.value);
+            if (qualitySelect.value === 'custom') {
+                fd.append('videoBitrate', customBitrateInput.value);
+                fd.append('customResolution', customResolutionSelect.value);
+            }
             fd.append('language', document.getElementById('audioLang').value);
             fd.append('translate', document.getElementById('translateEng').checked);
             fd.append('aiModel', document.getElementById('aiModel').value);
