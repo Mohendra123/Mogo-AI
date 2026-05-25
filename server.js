@@ -11,10 +11,69 @@ require('dotenv').config();
 const app = express();
 app.use(express.json({ limit: '2000mb', verify: (req, res, buf) => { req.rawBody = buf; } }));
 
-const TEMP_DIR = '/Volumes/Storage/mogo-server/temp';
+const TEMP_DIR = process.env.MOGO_TEMP_DIR || path.join(__dirname, 'temp');
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 
-const WHISPER_CPP_DIR = '/Volumes/Storage/mogo-server/whisper.cpp'; 
+const WHISPER_CPP_DIR = process.env.WHISPER_CPP_DIR || path.join(__dirname, 'whisper.cpp');
+
+function resolveWhisperBin() {
+    const candidates = [
+        path.join(WHISPER_CPP_DIR, 'build', 'bin', 'whisper-cli'),
+        path.join(WHISPER_CPP_DIR, 'whisper-cli'),
+        path.join(WHISPER_CPP_DIR, 'build', 'bin', 'main'),
+        path.join(WHISPER_CPP_DIR, 'main'),
+    ];
+    return candidates.find((bin) => fs.existsSync(bin)) || null;
+}
+
+function buildWhisperEnv() {
+    const libDirs = [
+        path.join(WHISPER_CPP_DIR, 'build', 'src'),
+        path.join(WHISPER_CPP_DIR, 'build', 'ggml', 'src'),
+        path.join(WHISPER_CPP_DIR, 'build', 'ggml', 'src', 'ggml-blas'),
+        path.join(WHISPER_CPP_DIR, 'build', 'ggml', 'src', 'ggml-metal'),
+    ].filter((dir) => fs.existsSync(dir));
+    const joined = libDirs.join(path.delimiter);
+    const prev = process.env.DYLD_LIBRARY_PATH || '';
+    return {
+        ...process.env,
+        DYLD_LIBRARY_PATH: prev ? `${joined}${path.delimiter}${prev}` : joined,
+    };
+}
+
+function resolveWhisperModel(aiModel) {
+    const modelBin = path.join(WHISPER_CPP_DIR, 'models', `ggml-${aiModel}.bin`);
+    if (!fs.existsSync(modelBin)) {
+        return { error: `Whisper model missing: ${modelBin}. Run: cd whisper.cpp/models && ./download-ggml-model.sh ${aiModel}` };
+    }
+    return { modelBin };
+}
+
+function spawnWhisper(args, handlers) {
+    const whisperBin = resolveWhisperBin();
+    if (!whisperBin) {
+        handlers.onError('Whisper binary not found. Build it: cd whisper.cpp && cmake -B build && cmake --build build');
+        return null;
+    }
+
+    const child = spawn(whisperBin, args, { env: buildWhisperEnv() });
+    let stderr = '';
+
+    child.on('error', (err) => handlers.onError(`Whisper spawn error: ${err.message}`));
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    if (handlers.onStdout) child.stdout.on('data', handlers.onStdout);
+
+    child.on('close', (code, signal) => {
+        if (code === 0) {
+            handlers.onSuccess();
+            return;
+        }
+        const detail = stderr.trim() || (signal ? `signal ${signal}` : `exit code ${code}`);
+        handlers.onError(`Whisper CPP failed (${detail})`);
+    });
+
+    return child;
+}
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/temp', express.static(TEMP_DIR));
@@ -209,83 +268,58 @@ app.post('/process', upload.single('video'), (req, res) => {
                 .audioCodec('pcm_s16le')
                 .output(audioWavPath)
                 .on('end', () => {
-                    
-                    // FIXED: Whisper updated their binary name from 'main' to 'whisper-cli'
-                    let whisperBin = path.join(WHISPER_CPP_DIR, 'whisper-cli');
-                    if (!fs.existsSync(whisperBin)) {
-                        whisperBin = path.join(WHISPER_CPP_DIR, 'main'); // Fallback for older versions
+                    const model = resolveWhisperModel(aiModel);
+                    if (model.error) {
+                        jobs[folderId].status = 'error';
+                        jobs[folderId].error = model.error;
+                        return;
                     }
 
-                    const modelBin = path.join(WHISPER_CPP_DIR, 'models', `ggml-${aiModel}.bin`);
-                    
                     let langCode = 'en';
                     if (audioLanguage === 'Hindi') langCode = 'hi';
                     if (audioLanguage === 'Urdu') langCode = 'ur';
 
-                    let whisperArgs = ['-m', modelBin, '-f', audioWavPath, '-ovtt', '-of', path.join(outputFolder, 'original'), '-l', langCode];
-                    
+                    const whisperArgs = ['-m', model.modelBin, '-f', audioWavPath, '-ovtt', '-of', path.join(outputFolder, 'original'), '-l', langCode];
                     if (audioLanguage === 'Hindi') whisperArgs.push('--prompt', 'यह देवनागरी लिपि में शुद्ध हिंदी है।');
 
-                    const whisperOrig = spawn(whisperBin, whisperArgs);
-
-                    // NEW: Error Handler to prevent Server Crash
-                    whisperOrig.on('error', (err) => {
-                        console.error('Whisper Spawn Error:', err);
-                        jobs[folderId].status = 'error'; 
-                        jobs[folderId].error = 'Whisper binary missing! Check Mac Terminal.';
-                    });
-
-                    whisperOrig.stdout.on('data', (data) => {
+                    const onWhisperProgress = (data) => {
                         const match = data.toString().match(/\[(\d{2}):(\d{2}):(\d{2})\.(\d{3}) -->/);
                         if (match && jobs[folderId].duration > 0) {
                             const currentSecs = (parseFloat(match[1]) * 3600) + (parseFloat(match[2]) * 60) + parseFloat(match[3]);
                             jobs[folderId].whisperProgress = Math.min(Math.round((currentSecs / jobs[folderId].duration) * 100), 100);
                         }
-                    });
+                    };
 
-                    whisperOrig.on('close', (code) => {
-                        if (code === 0) {
+                    const finishSuccess = () => {
+                        if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
+                        if (fs.existsSync(audioWavPath)) fs.unlinkSync(audioWavPath);
+                        jobs[folderId].status = 'done';
+                        jobs[folderId].previewUrl = `/temp/${folderId}/playlist.m3u8`;
+                    };
+
+                    spawnWhisper(whisperArgs, {
+                        onStdout: onWhisperProgress,
+                        onError: (msg) => { jobs[folderId].status = 'error'; jobs[folderId].error = msg; },
+                        onSuccess: () => {
                             jobs[folderId].vttOriginal = `/temp/${folderId}/original.vtt`;
 
                             if (translateToEng && audioLanguage !== 'English') {
                                 jobs[folderId].status = 'translating';
                                 jobs[folderId].whisperProgress = 0;
-
-                                let transArgs = ['-m', modelBin, '-f', audioWavPath, '-ovtt', '-of', path.join(outputFolder, 'english'), '-l', langCode, '-tr'];
-                                const whisperTrans = spawn(whisperBin, transArgs);
-
-                                whisperTrans.on('error', (err) => {
-                                    jobs[folderId].status = 'error'; jobs[folderId].error = 'Translation Engine Missing.';
-                                });
-
-                                whisperTrans.stdout.on('data', (data) => {
-                                    const match = data.toString().match(/\[(\d{2}):(\d{2}):(\d{2})\.(\d{3}) -->/);
-                                    if (match && jobs[folderId].duration > 0) {
-                                        const currentSecs = (parseFloat(match[1]) * 3600) + (parseFloat(match[2]) * 60) + parseFloat(match[3]);
-                                        jobs[folderId].whisperProgress = Math.min(Math.round((currentSecs / jobs[folderId].duration) * 100), 100);
-                                    }
-                                });
-
-                                whisperTrans.on('close', (tCode) => {
-                                    if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
-                                    if (fs.existsSync(audioWavPath)) fs.unlinkSync(audioWavPath);
-                                    jobs[folderId].vttEnglish = `/temp/${folderId}/english.vtt`;
-                                    jobs[folderId].status = 'done';
-                                    jobs[folderId].previewUrl = `/temp/${folderId}/playlist.m3u8`;
+                                const transArgs = ['-m', model.modelBin, '-f', audioWavPath, '-ovtt', '-of', path.join(outputFolder, 'english'), '-l', langCode, '-tr'];
+                                spawnWhisper(transArgs, {
+                                    onStdout: onWhisperProgress,
+                                    onError: (msg) => { jobs[folderId].status = 'error'; jobs[folderId].error = msg; },
+                                    onSuccess: () => {
+                                        jobs[folderId].vttEnglish = `/temp/${folderId}/english.vtt`;
+                                        finishSuccess();
+                                    },
                                 });
                             } else {
-                                if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
-                                if (fs.existsSync(audioWavPath)) fs.unlinkSync(audioWavPath);
-                                jobs[folderId].status = 'done';
-                                jobs[folderId].previewUrl = `/temp/${folderId}/playlist.m3u8`;
+                                finishSuccess();
                             }
-                        } else {
-                            if (code !== null) { 
-                                jobs[folderId].status = 'error'; jobs[folderId].error = `Whisper CPP failed with code ${code}`;
-                            }
-                        }
+                        },
                     });
-
                 })
                 .on('error', (err) => {
                     jobs[folderId].status = 'error'; jobs[folderId].error = 'Audio extraction failed';
@@ -323,20 +357,35 @@ app.post('/upload-to-r2', (req, res) => {
             let totalFiles = files.length;
             let uploadedCount = 0;
 
-            for (const file of files) {
-                let cType = file.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' : (file.endsWith('.ts') ? 'video/MP2T' : (file.endsWith('.vtt') ? 'text/vtt' : 'application/octet-stream'));
+            const bucket = process.env.R2_BUCKET_NAME;
+            if (!bucket) throw new Error('R2_BUCKET_NAME is not set in .env');
 
-await s3.send(new PutObjectCommand({
-    Bucket: "mogo-image-storage",  // <--- यह देखिए! यहाँ पहले से सही नाम डला हुआ है।
-    Key: fileName,
-    Body: req.file.buffer,
-    ContentType: 'image/webp',
-}));                uploadedCount++;
+            for (const file of files) {
+                const cType = file.endsWith('.m3u8')
+                    ? 'application/vnd.apple.mpegurl'
+                    : (file.endsWith('.ts') ? 'video/MP2T' : (file.endsWith('.vtt') ? 'text/vtt' : 'application/octet-stream'));
+
+                await s3.send(new PutObjectCommand({
+                    Bucket: bucket,
+                    Key: `${r2FolderPath}/${file}`,
+                    Body: fs.readFileSync(path.join(outputFolder, file)),
+                    ContentType: cType,
+                }));
+                uploadedCount++;
                 jobs[folderId].r2Progress = Math.round((uploadedCount / totalFiles) * 100);
             }
+            const publicBase = `${process.env.R2_PUBLIC_URL}/${r2FolderPath}`;
+            const totalBytes = files.reduce((sum, f) => sum + fs.statSync(path.join(outputFolder, f)).size, 0);
+            const hasOriginalVtt = files.includes('original.vtt');
+            const hasEnglishVtt = files.includes('english.vtt');
+
             fs.rmSync(outputFolder, { recursive: true, force: true });
             jobs[folderId].status = 'r2_done';
-            jobs[folderId].finalUrl = `${process.env.R2_PUBLIC_URL}/${r2FolderPath}/playlist.m3u8`;
+            jobs[folderId].finalUrl = `${publicBase}/playlist.m3u8`;
+            jobs[folderId].finalVttOriginal = hasOriginalVtt ? `${publicBase}/original.vtt` : null;
+            jobs[folderId].finalVttEnglish = hasEnglishVtt ? `${publicBase}/english.vtt` : null;
+            jobs[folderId].finalSizeMB = (totalBytes / (1024 * 1024)).toFixed(2);
+            jobs[folderId].finalDurationSec = jobs[folderId].duration || 0;
         } catch (error) {
             console.error("R2 Upload Error:", error);
             jobs[folderId].status = 'error';
@@ -462,18 +511,19 @@ app.post('/process-podcast', upload.fields([{ name: 'image', maxCount: 1 }, { na
             wavCmd.audioFrequency(16000).audioChannels(1)
                 .audioCodec('pcm_s16le').output(wavOut).on('end', () => {
                     
-                    let wBin = path.join(WHISPER_CPP_DIR, 'whisper-cli');
-                    if (!fs.existsSync(wBin)) wBin = path.join(WHISPER_CPP_DIR, 'main');
-                    const mBin = path.join(WHISPER_CPP_DIR, 'models', `ggml-${aiModel}.bin`);
-                    
+                    const model = resolveWhisperModel(aiModel);
+                    if (model.error) {
+                        jobs[folderId].status = 'error';
+                        jobs[folderId].error = model.error;
+                        return;
+                    }
+
                     let langCode = 'en';
                     if (aLang === 'Hindi') langCode = 'hi';
                     if (aLang === 'Urdu') langCode = 'ur';
 
-                    // ✅ FIX: -ml 20 lagaya taki caption chhote aayein aur speed sync rahe!
-                    let wArgs = ['-m', mBin, '-l', langCode, '-f', wavOut, '-ovtt', '-of', path.join(outFolder, 'original'), '-ml', '20'];
-                    const wOrig = spawn(wBin, wArgs);
-                    
+                    const wArgs = ['-m', model.modelBin, '-l', langCode, '-f', wavOut, '-ovtt', '-of', path.join(outFolder, 'original'), '-ml', '20'];
+
                     const finishJob = () => {
                         let totalBytes = 0;
                         if (fs.existsSync(outFolder)) {
@@ -486,26 +536,45 @@ app.post('/process-podcast', upload.fields([{ name: 'image', maxCount: 1 }, { na
                         jobs[folderId].previewUrl = `/temp/${folderId}/playlist.m3u8`;
                     };
 
-                    wOrig.on('close', (code) => {
-                        if (code !== 0) { jobs[folderId].status = 'error'; jobs[folderId].error = 'Whisper Failed.'; return; }
-                        jobs[folderId].vttOriginal = `/temp/${folderId}/original.vtt`;
-                        
-                        if (transEng && aLang !== 'English') {
-                            jobs[folderId].status = 'translating';
-                            let tArgs = ['-m', mBin, '-l', langCode, '-f', wavOut, '-tr', '-ovtt', '-of', path.join(outFolder, 'english'), '-ml', '20'];
-                            const wTrans = spawn(wBin, tArgs);
-                            wTrans.on('close', () => {
-                                jobs[folderId].vttEnglish = `/temp/${folderId}/english.vtt`;
+                    spawnWhisper(wArgs, {
+                        onError: (msg) => { jobs[folderId].status = 'error'; jobs[folderId].error = msg; },
+                        onSuccess: () => {
+                            jobs[folderId].vttOriginal = `/temp/${folderId}/original.vtt`;
+                            if (transEng && aLang !== 'English') {
+                                jobs[folderId].status = 'translating';
+                                const tArgs = ['-m', model.modelBin, '-l', langCode, '-f', wavOut, '-tr', '-ovtt', '-of', path.join(outFolder, 'english'), '-ml', '20'];
+                                spawnWhisper(tArgs, {
+                                    onError: (msg) => { jobs[folderId].status = 'error'; jobs[folderId].error = msg; },
+                                    onSuccess: () => {
+                                        jobs[folderId].vttEnglish = `/temp/${folderId}/english.vtt`;
+                                        finishJob();
+                                    },
+                                });
+                            } else {
                                 finishJob();
-                            });
-                        } else {
-                            finishJob();
-                        }
+                            }
+                        },
                     });
                 }).on('error', (err) => { jobs[folderId].status = 'error'; jobs[folderId].error = err.message; }).run();
         }).on('error', (err) => { jobs[folderId].status = 'error'; jobs[folderId].error = err.message; }).run();
 });
 
-const server = app.listen(process.env.PORT || 3000, () => console.log(`Server Running!`));
+function logWhisperStartupCheck() {
+    const bin = resolveWhisperBin();
+    console.log(`Whisper dir: ${WHISPER_CPP_DIR}`);
+    if (!bin) {
+        console.error('Whisper: binary NOT FOUND — run: cd whisper.cpp && cmake -B build && cmake --build build');
+        return;
+    }
+    console.log(`Whisper: binary OK — ${bin}`);
+    const model = resolveWhisperModel('small');
+    if (model.error) console.error(`Whisper: ${model.error}`);
+    else console.log(`Whisper: model OK — ${model.modelBin}`);
+}
+
+const server = app.listen(process.env.PORT || 3000, () => {
+    console.log(`Server Running!`);
+    logWhisperStartupCheck();
+});
 server.timeout = 0;
 server.keepAliveTimeout = 0;

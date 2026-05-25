@@ -588,6 +588,12 @@
         }
         #finalLink, .final-link { color: var(--primary); text-decoration: none; word-break: break-all; font-size: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
         #finalLink:hover, .final-link:hover { text-decoration: underline; }
+        .final-link-group { margin-bottom: 14px; text-align: left; }
+        .final-link-label { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); font-weight: 600; padding-left: 4px; margin-bottom: 6px; }
+        .final-copy-btn { margin-top: 8px; min-height: 38px; font-size: 13px; padding: 0 14px; background: rgba(255, 255, 255, 0.08); color: var(--text-main); border: 1px solid var(--glass-border); }
+        .final-copy-btn:hover { background: rgba(255, 255, 255, 0.14); }
+        .final-copy-btn.copied { background: rgba(52, 199, 89, 0.25); border-color: rgba(52, 199, 89, 0.5); }
+        #finalStatsBox { margin-bottom: 18px; }
         @media (max-width: 600px) {
             body { padding: 12px; align-items: center; }
             .container { padding: 44px 20px 28px; border-radius: 28px; width: 100%; max-width: 100%; margin: 0 auto; }
@@ -772,9 +778,36 @@
 
         <div id="finalArea" style="display:none; margin-top:20px;">
             <p class="success-headline">Successfully Published</p>
-            <div class="glass-inset">
-                <a id="finalLink" class="final-link" href="#" target="_blank">Link</a>
+
+            <div class="stats-box" id="finalStatsBox">
+                <div class="stat-row"><span>Duration</span><span><b id="finalDuration">—</b></span></div>
+                <div class="stat-row"><span>Total size</span><span><b id="finalSize">—</b> MB</span></div>
             </div>
+
+            <div class="final-link-group">
+                <div class="final-link-label">Video (HLS)</div>
+                <div class="glass-inset">
+                    <a id="finalLink" class="final-link" href="#" target="_blank">—</a>
+                </div>
+                <button type="button" class="btn btn-ghost final-copy-btn" data-copy-target="finalLink">Copy link</button>
+            </div>
+
+            <div class="final-link-group" id="finalVttOriginalWrap" style="display:none;">
+                <div class="final-link-label">Original captions (.vtt)</div>
+                <div class="glass-inset">
+                    <a id="finalVttOriginal" class="final-link" href="#" target="_blank">—</a>
+                </div>
+                <button type="button" class="btn btn-ghost final-copy-btn" data-copy-target="finalVttOriginal">Copy link</button>
+            </div>
+
+            <div class="final-link-group" id="finalVttEnglishWrap" style="display:none;">
+                <div class="final-link-label">English captions (.vtt)</div>
+                <div class="glass-inset">
+                    <a id="finalVttEnglish" class="final-link" href="#" target="_blank">—</a>
+                </div>
+                <button type="button" class="btn btn-ghost final-copy-btn" data-copy-target="finalVttEnglish">Copy link</button>
+            </div>
+
             <button onclick="clearStateAndReload()" class="btn">Convert Another Episode</button>
         </div>
     </div>
@@ -1170,6 +1203,12 @@
                         pb.style.width = `${job.whisperProgress || 0}%`; st.innerText = `Auto-Translating to English... ${job.whisperProgress || 0}%`;
                     } else if (job.status === 'done') {
                         clearInterval(pollingInterval); showPreview(job);
+                    } else if (job.status === 'uploading_r2') {
+                        pb.style.width = `${job.r2Progress || 0}%`;
+                        st.innerText = `Uploading to Cloudflare R2... ${job.r2Progress || 0}%`;
+                    } else if (job.status === 'r2_done') {
+                        clearInterval(pollingInterval);
+                        showPublishedLink(job);
                     } else if (job.status === 'error') {
                         clearInterval(pollingInterval); alert(`Error: ${job.error}`); clearStateAndReload();
                     }
@@ -1213,22 +1252,85 @@
             setTimeout(() => { if (videoElement.textTracks && videoElement.textTracks.length > 0) videoElement.textTracks[0].mode = 'showing'; }, 500);
         }
 
+        function formatDuration(secs) {
+            if (!secs || !Number.isFinite(secs)) return '—';
+            const total = Math.round(secs);
+            const h = Math.floor(total / 3600);
+            const m = Math.floor((total % 3600) / 60);
+            const s = total % 60;
+            const pad = (n) => n.toString().padStart(2, '0');
+            return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+        }
+
+        function setFinalLink(elId, wrapId, url) {
+            const a = document.getElementById(elId);
+            if (!a) return;
+            if (url) {
+                a.href = url;
+                a.innerText = url;
+                if (wrapId) document.getElementById(wrapId).style.display = '';
+            } else if (wrapId) {
+                document.getElementById(wrapId).style.display = 'none';
+            }
+        }
+
+        function showPublishedLink(job) {
+            if (!job || !job.finalUrl) {
+                alert('Upload finished but public URL is missing. Check R2_PUBLIC_URL in .env');
+                return;
+            }
+            document.getElementById('loadingArea').style.display = 'none';
+            document.getElementById('finalArea').style.display = 'block';
+            setFinalLink('finalLink', null, job.finalUrl);
+            setFinalLink('finalVttOriginal', 'finalVttOriginalWrap', job.finalVttOriginal);
+            setFinalLink('finalVttEnglish', 'finalVttEnglishWrap', job.finalVttEnglish);
+            document.getElementById('finalDuration').innerText = formatDuration(job.finalDurationSec);
+            document.getElementById('finalSize').innerText = job.finalSizeMB || job.newSizeMB || '—';
+            localStorage.removeItem('active_mogo_job');
+            localStorage.removeItem('mogo_custom_timer');
+            localStorage.removeItem('mogo_aspect_ratio');
+        }
+
+        document.querySelectorAll('.final-copy-btn').forEach((btn) => {
+            btn.addEventListener('click', async () => {
+                const target = document.getElementById(btn.getAttribute('data-copy-target'));
+                if (!target || !target.href || target.innerText === '—') return;
+                try {
+                    await navigator.clipboard.writeText(target.href);
+                    const original = btn.innerText;
+                    btn.classList.add('copied');
+                    btn.innerText = 'Copied!';
+                    setTimeout(() => { btn.classList.remove('copied'); btn.innerText = original; }, 1500);
+                } catch (e) {
+                    alert('Copy failed. Long-press the link to copy manually.');
+                }
+            });
+        });
+
         async function uploadToR2() {
             clearInterval(countdownTimer);
             document.getElementById('previewArea').style.display = 'none';
-            document.getElementById('loadingArea').innerHTML = '<div class="loading-r2-stack"><p class="loading-title" id="statusText">Uploading Final Files to Cloudflare R2…</p><p class="muted-hint loading-r2-hint">Uploading final video and captions to Cloudflare R2. Do not close this tab.</p></div>';
             document.getElementById('loadingArea').style.display = 'block';
+            const pb = document.getElementById('progressBar');
+            const st = document.getElementById('statusText');
+            if (pb) pb.style.width = '0%';
+            if (st) st.innerText = 'Uploading to Cloudflare R2... 0%';
 
             const sName = localStorage.getItem('mogo_series_name') || 'Series';
             const eNum = localStorage.getItem('mogo_episode_num') || '1';
 
-            const res = await fetch('/upload-to-r2', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folderId: currentFolderId, series: sName, episode: eNum }) });
-            const data = await res.json();
-
-            document.getElementById('loadingArea').style.display = 'none';
-            document.getElementById('finalArea').style.display = 'block';
-            document.getElementById('finalLink').href = data.url; document.getElementById('finalLink').innerText = data.url;
-            localStorage.removeItem('active_mogo_job'); localStorage.removeItem('mogo_custom_timer'); localStorage.removeItem('mogo_aspect_ratio');
+            try {
+                const res = await fetch('/upload-to-r2', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folderId: currentFolderId, series: sName, episode: eNum }),
+                });
+                if (!res.ok) throw new Error('Upload request failed');
+                startPolling(currentFolderId);
+            } catch (err) {
+                alert('R2 upload failed: ' + err.message);
+                clearStateAndReload();
+            }
         }
 
         document.getElementById('uploadR2Btn').addEventListener('click', uploadToR2);
